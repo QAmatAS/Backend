@@ -1,23 +1,19 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
+
+const User = require('../models/User');
 
 const router = express.Router();
 
-// In-memory data store, just for demonstration.
-// Replace this with a real database (e.g. Prisma, Sequelize, Mongoose) later.
-let users = [
-  { id: 1, name: 'Alice', email: 'alice@example.com' },
-  { id: 2, name: 'Bob', email: 'bob@example.com' },
-];
-let nextId = 3;
-
 // GET /api/users
-router.get('/', (req, res) => {
-  res.json({ data: users });
+router.get('/', async (req, res) => {
+  const users = await User.find().sort({ createdAt: 1 });
+  res.json({ data: users.map((user) => user.toPublic()) });
 });
 
 // GET /api/users/:id
-router.get('/:id', (req, res, next) => {
-  const user = users.find((u) => u.id === Number(req.params.id));
+router.get('/:id', async (req, res, next) => {
+  const user = await User.findById(req.params.id);
 
   if (!user) {
     const error = new Error('User not found');
@@ -25,37 +21,52 @@ router.get('/:id', (req, res, next) => {
     return next(error);
   }
 
-  res.json({ data: user });
+  res.json({ data: user.toPublic() });
 });
 
-// POST /api/users
-router.post('/', (req, res, next) => {
-  const { name, email } = req.body || {};
+// POST /api/users  (register)
+router.post('/', async (req, res, next) => {
+  const { name, email, password } = req.body || {};
 
-  if (!name || !email) {
-    const error = new Error('name and email are required');
+  if (!name || !email || !password) {
+    const error = new Error('name, email and password are required');
     error.status = 400;
     return next(error);
   }
 
-  const user = { id: nextId++, name, email };
-  users.push(user);
+  if (String(password).length < 6) {
+    const error = new Error('password must be at least 6 characters');
+    error.status = 400;
+    return next(error);
+  }
 
-  res.status(201).json({ data: user });
+  const normalizedEmail = String(email).trim().toLowerCase();
+
+  if (await User.exists({ email: normalizedEmail })) {
+    const error = new Error('Email is already registered');
+    error.status = 409;
+    return next(error);
+  }
+
+  const user = await User.create({
+    name,
+    email: normalizedEmail,
+    passwordHash: bcrypt.hashSync(password, 10),
+  });
+
+  res.status(201).json({ data: user.toPublic() });
 });
 
 // DELETE /api/users/:id
-router.delete('/:id', (req, res, next) => {
-  const id = Number(req.params.id);
-  const exists = users.some((u) => u.id === id);
+router.delete('/:id', async (req, res, next) => {
+  const user = await User.findByIdAndDelete(req.params.id);
 
-  if (!exists) {
+  if (!user) {
     const error = new Error('User not found');
     error.status = 404;
     return next(error);
   }
 
-  users = users.filter((u) => u.id !== id);
   res.status(204).send();
 });
 
