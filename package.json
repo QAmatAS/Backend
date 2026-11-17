@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "seed": "node src/seed.js"
+    "tunnel": "node src/tunnel.js",
+    "seed": "node src/seed.js",
+    "seed:foods": "node src/seedFoods.js"
   },
   "keywords": [
     "express",
@@ -26,6 +28,10 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.12.1",
-    "morgan": "^1.12.1"
+    "morgan": "^1.12.1",
+    "multer": "^2.5.0"
+  },
+  "devDependencies": {
+    "localtunnel": "^2.0.2"
   }
 }

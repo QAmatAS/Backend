@@ -1,8 +1,10 @@
 const crypto = require('crypto');
+const fs = require('fs/promises');
 const express = require('express');
 const mongoose = require('mongoose');
 
 const FoodItemListing = require('../models/FoodItemListing');
+const { uploadFoodPhotos, renameUploadedPhotos, UPLOAD_URL_PREFIX } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -26,6 +28,35 @@ function parseDate(value, field) {
     throw httpError(400, `${field} is not a valid date`);
   }
   return date;
+}
+
+/**
+ * JSON requests use the body as-is. Multipart requests (used to upload photos)
+ * carry the listing JSON in a `data` field next to the `photos` files.
+ */
+function parseListingBody(req) {
+  if (!req.is('multipart/form-data')) {
+    return req.body;
+  }
+
+  if (!req.body || !isPresent(req.body.data)) {
+    throw httpError(
+      400,
+      'multipart requests must include a `data` field containing the listing JSON'
+    );
+  }
+
+  try {
+    return JSON.parse(req.body.data);
+  } catch {
+    throw httpError(400, '`data` must be valid JSON');
+  }
+}
+
+async function removeUploadedFiles(files) {
+  if (!files || files.length === 0) return;
+
+  await Promise.all(files.map((file) => fs.unlink(file.path).catch(() => {})));
 }
 
 /**
@@ -103,10 +134,10 @@ function buildListingPayload(body) {
       title: details.title,
       description: details.description || '',
       category: details.category,
-      dietary_tags: details.dietary_tags || [],
+      dietary_tags: Array.isArray(details.dietary_tags) ? details.dietary_tags : [],
       quantity_portions: details.quantity_portions,
       expiry_timestamp: parseDate(details.expiry_timestamp, 'food_details.expiry_timestamp'),
-      photo_urls: details.photo_urls || [],
+      photo_urls: Array.isArray(details.photo_urls) ? details.photo_urls : [],
     },
 
     location: {
@@ -177,18 +208,33 @@ router.get('/:id', async (req, res, next) => {
   res.json({ data: listing.toPublic() });
 });
 
-// POST /api/foods  (create + persist in MongoDB)
-router.post('/', async (req, res, next) => {
+// POST /api/foods  (JSON, or multipart with `data` JSON + `photos` files)
+router.post('/', uploadFoodPhotos.array('photos', 5), async (req, res, next) => {
   try {
-    const payload = buildListingPayload(req.body);
+    const payload = buildListingPayload(parseListingBody(req));
 
     if (await FoodItemListing.exists({ food_id: payload.food_id })) {
       throw httpError(409, 'food_id is already registered');
     }
 
+    // Files were stored with temporary names; rename them to Image_<food_id>.
+    await renameUploadedPhotos(req.files, payload.food_id);
+
+    const uploadedPhotoUrls = (req.files || []).map(
+      (file) => `${UPLOAD_URL_PREFIX}/${file.filename}`
+    );
+
+    payload.food_details.photo_urls = [
+      ...payload.food_details.photo_urls,
+      ...uploadedPhotoUrls,
+    ];
+
     const listing = await FoodItemListing.create(payload);
     res.status(201).json({ data: listing.toPublic() });
   } catch (err) {
+    // Never leave orphaned image files behind when creation fails.
+    await removeUploadedFiles(req.files);
+
     // Race condition safety net for the unique food_id index.
     if (err.code === 11000) {
       return next(httpError(409, 'food_id is already registered'));

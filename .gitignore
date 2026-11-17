@@ -20,3 +20,7 @@ Thumbs.db
 # Build output (if you add a bundler later)
 dist/
 coverage/
+
+# Locally uploaded images (keep the folder, ignore its contents)
+uploads/*
+!uploads/.gitkeep

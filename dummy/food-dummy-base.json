@@ -1,0 +1,37 @@
+{
+  "food_id": "food_8821",
+  "contributor_id": "usr_9842a7f1",
+  "created_at": "2026-11-08T09:00:00Z",
+  
+  "verification_status": "approved",
+  "verification_details": {
+    "verified_by_admin_id": "adm_001",
+    "verified_at": "2026-11-08T09:15:00Z",
+    "rejection_reason": null
+  },
+
+  "food_details": {
+    "title": "Nasi Kotak Ayam Bakar (5 Porsi)",
+    "description": "Sisa acara ulang tahun keluarga, kondisi masih hangat dan higienis.",
+    "category": "Makanan Berat",
+    "dietary_tags": ["Halal", "Bebas Kacang"],
+    "quantity_portions": 5,
+    "expiry_timestamp": "2026-11-08T20:00:00Z",
+    "photo_urls": [
+      "https://images.app.example/foods/food_8821_1.jpg"
+    ]
+  },
+
+  "location": {
+    "location_name": "Depan Pos Satpam Kompleks Asri",
+    "address_text": "Jl. Mawar No. 12, Lowokwaru, Malang",
+    "coordinates": {
+      "latitude": -7.9521,
+      "longitude": 112.6142
+    },
+    "pickup_notes": "Makanan ditaruh di meja pos satpam. Silakan ambil langsung tanpa perlu mengetuk rumah.",
+    "external_map_url": "https://maps.google.com/?q=-7.9521,112.6142"
+  },
+
+  "status": "available"
+}

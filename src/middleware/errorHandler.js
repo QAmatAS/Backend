@@ -13,6 +13,14 @@ function errorHandler(err, req, res, next) {
   } else if (err.name === 'CastError') {
     status = 400;
     message = err.path === '_id' ? 'Invalid id' : `Invalid ${err.path}`;
+  } else if (err.name === 'MulterError') {
+    status = 400;
+    const messages = {
+      LIMIT_FILE_SIZE: 'each photo must be at most 5 MB',
+      LIMIT_FILE_COUNT: 'at most 5 photos are allowed',
+      LIMIT_UNEXPECTED_FILE: 'unexpected file field; use `photos` (max 5 files)',
+    };
+    message = messages[err.code] || err.message;
   } else if (err.code === 11000) {
     status = 409;
     message = 'Email is already registered';

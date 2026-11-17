@@ -1,0 +1,20 @@
+{
+  "user_id": "usr_9842a7f1",
+  "created_at": "2025-03-15T08:30:00Z",
+  "role": "contributor",
+  "personal_info": {
+    "display_name": "Maya Lin",
+    "avatar_url": "https://images.app.example/profiles/usr_9842a7f1.jpg",
+    "bio": "Gemar berbagi masakan rumah dan hasil kebun sendiri.",
+    "phone": "+6281234567890"
+  },
+  "stats": {
+    "total_shared_submitted": 12,
+    "total_shared_approved": 10,
+    "rating": 4.9
+  },
+  "my_listings": [
+    "food_8821",
+    "food_8822"
+  ]
+}
