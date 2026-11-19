@@ -46,6 +46,7 @@
       "category": "Bakery",
       "dietary_tags": ["Vegetarian"],
       "quantity_portions": 12,
+      "quantity_unit": "kotak",
       "expiry_timestamp": "2026-11-18T13:00:00Z",
       "photo_urls": ["https://picsum.photos/seed/food_demo02/800/600"]
     },

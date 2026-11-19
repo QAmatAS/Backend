@@ -88,6 +88,7 @@ async function renameUploadedPhotos(files, foodId) {
 module.exports = {
   uploadFoodPhotos,
   renameUploadedPhotos,
+  sanitizeFoodId,
   uploadDir,
   UPLOAD_URL_PREFIX,
 };

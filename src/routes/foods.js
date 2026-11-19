@@ -1,12 +1,31 @@
 const crypto = require('crypto');
 const fs = require('fs/promises');
+const path = require('path');
 const express = require('express');
 const mongoose = require('mongoose');
 
 const FoodItemListing = require('../models/FoodItemListing');
-const { uploadFoodPhotos, renameUploadedPhotos, UPLOAD_URL_PREFIX } = require('../middleware/upload');
+const User = require('../models/User');
+const { authenticate } = require('../middleware/auth');
+const {
+  uploadFoodPhotos,
+  renameUploadedPhotos,
+  sanitizeFoodId,
+  uploadDir,
+  UPLOAD_URL_PREFIX,
+} = require('../middleware/upload');
 
 const router = express.Router();
+
+// How a listing may move between availability marks. `picked_up` and
+// `cancelled` are terminal; anything else is rejected with 400.
+const STATUS_TRANSITIONS = {
+  available: ['reserved', 'cancelled', 'expired'],
+  reserved: ['available', 'picked_up', 'cancelled'],
+  picked_up: [],
+  cancelled: [],
+  expired: ['available'],
+};
 
 function httpError(status, message) {
   const error = new Error(message);
@@ -18,8 +37,71 @@ function generateFoodId() {
   return `food_${crypto.randomBytes(4).toString('hex')}`;
 }
 
+const EARTH_RADIUS_KM = 6378.1;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+const DEFAULT_RADIUS_KM = 5;
+const MAX_RADIUS_KM = 100;
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function isPresent(value) {
   return value !== undefined && value !== null && value !== '';
+}
+
+/**
+ * Validates an optional enum query parameter. Returns null when absent, so a
+ * typo produces 400 instead of a silently empty page.
+ */
+function parseEnumParam(value, allowed, field) {
+  if (!isPresent(value)) return null;
+
+  if (!allowed.includes(value)) {
+    throw httpError(400, `${field} must be one of: ${allowed.join(', ')}`);
+  }
+
+  return value;
+}
+
+function parseBoundedInt(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+/**
+ * Parses the optional ?lat&lng&radiusKm triple. Returns null when absent.
+ */
+function parseGeoQuery(lat, lng, radiusKm) {
+  const hasLat = isPresent(lat);
+  const hasLng = isPresent(lng);
+
+  if (!hasLat && !hasLng) return null;
+
+  if (hasLat !== hasLng) {
+    throw httpError(400, 'lat and lng must be provided together');
+  }
+
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+
+  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+    throw httpError(400, 'lat must be a number between -90 and 90');
+  }
+
+  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    throw httpError(400, 'lng must be a number between -180 and 180');
+  }
+
+  const radius = isPresent(radiusKm) ? Number(radiusKm) : DEFAULT_RADIUS_KM;
+
+  if (!Number.isFinite(radius) || radius <= 0 || radius > MAX_RADIUS_KM) {
+    throw httpError(400, `radiusKm must be a number between 0 and ${MAX_RADIUS_KM}`);
+  }
+
+  return { latitude, longitude, radiusKm: radius };
 }
 
 function parseDate(value, field) {
@@ -60,25 +142,37 @@ async function removeUploadedFiles(files) {
 }
 
 /**
- * Validates the request body and normalizes it into the exact shape stored in
- * MongoDB. Optional parts (food_id, created_at, verification, status) get
- * sensible defaults so a minimal payload is enough.
+ * Removes the image files this listing created. Only files named
+ * Image_<food_id>… are touched, so a listing cannot delete another listing's
+ * photo by referencing its URL in photo_urls.
  */
-function buildListingPayload(body) {
-  const {
-    food_id,
-    contributor_id,
-    created_at,
-    verification_status,
-    verification_details,
-    food_details,
-    location,
-    status,
-  } = body || {};
+async function removeListingPhotos(listing) {
+  const base = `Image_${sanitizeFoodId(listing.food_id)}`;
+  const photoUrls = listing.food_details?.photo_urls || [];
 
-  if (!isPresent(contributor_id)) {
-    throw httpError(400, 'contributor_id is required');
+  for (const url of photoUrls) {
+    if (typeof url !== 'string' || !url.startsWith(`${UPLOAD_URL_PREFIX}/`)) continue;
+
+    // basename() strips any directory component, so a crafted URL cannot
+    // escape the uploads folder.
+    const name = path.basename(url);
+    if (!name.startsWith(base)) continue;
+
+    await fs.unlink(path.join(uploadDir, name)).catch((err) => {
+      if (err.code !== 'ENOENT') {
+        console.error(`Failed to remove uploaded photo ${name}:`, err.message);
+      }
+    });
   }
+}
+
+/**
+ * Validates the request body and normalizes it into the exact shape stored in
+ * MongoDB. Ownership and verification are decided by the server:
+ * contributor_id comes from the token, and every new listing starts pending.
+ */
+function buildListingPayload(body, contributorId) {
+  const { food_id, created_at, food_details, location } = body || {};
 
   const details = food_details || {};
   for (const field of ['title', 'category', 'quantity_portions', 'expiry_timestamp']) {
@@ -97,37 +191,22 @@ function buildListingPayload(body) {
     throw httpError(400, 'location.coordinates.latitude and longitude are required numbers');
   }
 
-  const verification = verification_details || {};
-  let verifiedAt = isPresent(verification.verified_at)
-    ? parseDate(verification.verified_at, 'verification_details.verified_at')
-    : null;
-
-  if (verification_status === 'approved' && !verifiedAt) {
-    verifiedAt = new Date();
-  }
-
-  if (
-    verification_status === 'rejected' &&
-    !isPresent(verification.rejection_reason)
-  ) {
-    throw httpError(400, 'verification_details.rejection_reason is required when rejected');
-  }
-
-  const mapUrl =
-    pickupLocation.external_map_url ||
-    `https://maps.google.com/?q=${coordinates.latitude},${coordinates.longitude}`;
+  // Backdating is allowed, but a future date would keep the listing at the top
+  // of the feed (and permanently "new" for the notification cursor).
+  const createdAt = isPresent(created_at) ? parseDate(created_at, 'created_at') : new Date();
 
   return {
     food_id: isPresent(food_id) ? String(food_id).trim() : generateFoodId(),
-    contributor_id: String(contributor_id).trim(),
-    created_at: isPresent(created_at) ? parseDate(created_at, 'created_at') : new Date(),
+    contributor_id: contributorId,
+    created_at: createdAt > new Date() ? new Date() : createdAt,
     updated_at: new Date(),
 
-    verification_status: verification_status || 'pending',
+    // Only the admin verification route may change these.
+    verification_status: 'pending',
     verification_details: {
-      verified_by_admin_id: verification.verified_by_admin_id || null,
-      verified_at: verifiedAt,
-      rejection_reason: verification.rejection_reason || null,
+      verified_by_admin_id: null,
+      verified_at: null,
+      rejection_reason: null,
     },
 
     food_details: {
@@ -136,6 +215,9 @@ function buildListingPayload(body) {
       category: details.category,
       dietary_tags: Array.isArray(details.dietary_tags) ? details.dietary_tags : [],
       quantity_portions: details.quantity_portions,
+      quantity_unit: isPresent(details.quantity_unit)
+        ? String(details.quantity_unit).trim()
+        : 'porsi',
       expiry_timestamp: parseDate(details.expiry_timestamp, 'food_details.expiry_timestamp'),
       photo_urls: Array.isArray(details.photo_urls) ? details.photo_urls : [],
     },
@@ -148,10 +230,12 @@ function buildListingPayload(body) {
         longitude: coordinates.longitude,
       },
       pickup_notes: pickupLocation.pickup_notes || '',
-      external_map_url: mapUrl,
+      external_map_url:
+        pickupLocation.external_map_url ||
+        `https://maps.google.com/?q=${coordinates.latitude},${coordinates.longitude}`,
     },
 
-    status: status || 'available',
+    status: 'available',
   };
 }
 
@@ -169,33 +253,116 @@ async function findListing(identifier) {
   return null;
 }
 
-// GET /api/foods  (optional filters: status, verification_status, contributor_id)
+/**
+ * Listings are public to read, so returning 403 here reveals nothing that
+ * GET /api/foods/:id does not already show.
+ */
+function assertOwner(req, listing) {
+  if (listing.contributor_id !== req.user.user_id) {
+    throw httpError(403, 'You can only change your own listings');
+  }
+}
+
+// GET /api/foods
+// Explore feed: text search, category filter, availability/verification
+// filters, geo radius and paging. Rejected and cancelled listings are hidden
+// unless explicitly requested by name.
 router.get('/', async (req, res) => {
-  const { status, verification_status, contributor_id } = req.query;
+  const { status, verification_status, contributor_id, category, q, lat, lng, radiusKm } =
+    req.query;
 
   const filter = {};
-  if (status) filter.status = status;
-  if (verification_status) filter.verification_status = verification_status;
-  if (contributor_id) filter.contributor_id = contributor_id;
 
-  const requestedLimit = Number.parseInt(req.query.limit, 10);
-  const limit = Number.isFinite(requestedLimit)
-    ? Math.min(Math.max(requestedLimit, 1), 100)
-    : 50;
+  filter.status =
+    parseEnumParam(status, FoodItemListing.STATUSES, 'status') || { $ne: 'cancelled' };
 
-  const requestedSkip = Number.parseInt(req.query.skip, 10);
-  const skip = Number.isFinite(requestedSkip) ? Math.max(requestedSkip, 0) : 0;
+  filter.verification_status =
+    parseEnumParam(
+      verification_status,
+      FoodItemListing.VERIFICATION_STATUSES,
+      'verification_status'
+    ) || { $ne: 'rejected' };
 
-  const listings = await FoodItemListing.find(filter)
-    .sort({ created_at: -1 })
-    .skip(skip)
+  if (isPresent(contributor_id)) {
+    filter.contributor_id = String(contributor_id).trim();
+  }
+
+  if (isPresent(category)) {
+    filter['food_details.category'] = new RegExp(`^${escapeRegex(category)}$`, 'i');
+  }
+
+  const needle = isPresent(q) ? String(q).trim() : '';
+  if (needle) {
+    const pattern = new RegExp(escapeRegex(needle), 'i');
+    filter.$or = [
+      { 'food_details.title': pattern },
+      { 'food_details.description': pattern },
+    ];
+  }
+
+  const geo = parseGeoQuery(lat, lng, radiusKm);
+
+  const limit = parseBoundedInt(req.query.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+  const page = parseBoundedInt(req.query.page, 1, 1, Number.MAX_SAFE_INTEGER);
+
+  const pageFilter = { ...filter };
+  const countFilter = { ...filter };
+
+  if (geo) {
+    const point = { type: 'Point', coordinates: [geo.longitude, geo.latitude] };
+
+    pageFilter['location.geo'] = {
+      $near: { $geometry: point, $maxDistance: geo.radiusKm * 1000 },
+    };
+
+    // $near cannot be used with countDocuments() or with an explicit sort(), so
+    // the total comes from the same circle expressed with a countable operator.
+    countFilter['location.geo'] = {
+      $geoWithin: {
+        $centerSphere: [
+          [geo.longitude, geo.latitude],
+          geo.radiusKm / EARTH_RADIUS_KM,
+        ],
+      },
+    };
+  }
+
+  const findQuery = FoodItemListing.find(pageFilter)
+    .skip((page - 1) * limit)
     .limit(limit);
+
+  // $near already returns nearest-first; an explicit sort would override it.
+  if (!geo) findQuery.sort({ created_at: -1 });
+
+  const [listings, total] = await Promise.all([
+    findQuery,
+    FoodItemListing.countDocuments(countFilter),
+  ]);
 
   res.json({
     count: listings.length,
+    total,
+    page,
+    limit,
+    hasMore: page * limit < total,
     data: listings.map((listing) => listing.toPublic()),
   });
 });
+
+/**
+ * Listing payload plus the contributor's public contact block. Resolved at read
+ * time (not denormalised into the listing) so a changed phone number takes
+ * effect immediately. Null when the owner account no longer exists, so the app
+ * can hide the contact buttons instead of showing an empty number.
+ */
+async function withContributor(listing) {
+  const owner = await User.findOne({ user_id: listing.contributor_id });
+
+  return {
+    ...listing.toPublic(),
+    contributor: owner ? owner.toContributor() : null,
+  };
+}
 
 // GET /api/foods/:id  (accepts food_id or Mongo ObjectId)
 router.get('/:id', async (req, res, next) => {
@@ -205,13 +372,13 @@ router.get('/:id', async (req, res, next) => {
     return next(httpError(404, 'Food listing not found'));
   }
 
-  res.json({ data: listing.toPublic() });
+  res.json({ data: await withContributor(listing) });
 });
 
 // POST /api/foods  (JSON, or multipart with `data` JSON + `photos` files)
-router.post('/', uploadFoodPhotos.array('photos', 5), async (req, res, next) => {
+router.post('/', authenticate, uploadFoodPhotos.array('photos', 5), async (req, res, next) => {
   try {
-    const payload = buildListingPayload(parseListingBody(req));
+    const payload = buildListingPayload(parseListingBody(req), req.user.user_id);
 
     if (await FoodItemListing.exists({ food_id: payload.food_id })) {
       throw httpError(409, 'food_id is already registered');
@@ -244,32 +411,55 @@ router.post('/', uploadFoodPhotos.array('photos', 5), async (req, res, next) => 
   }
 });
 
-// PATCH /api/foods/:id  (update status, verification or listing content)
-router.patch('/:id', async (req, res, next) => {
+// PATCH /api/foods/:id/status  (owner only: availability mark)
+router.patch('/:id/status', authenticate, async (req, res, next) => {
   const listing = await findListing(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));
   }
 
-  const {
-    status,
-    verification_status,
-    verification_details,
-    food_details,
-    location,
-  } = req.body || {};
+  assertOwner(req, listing);
 
-  if (status !== undefined) listing.status = status;
-  if (verification_status !== undefined) listing.verification_status = verification_status;
+  const { status } = req.body || {};
 
-  if (verification_details !== undefined) {
-    const current = listing.verification_details
-      ? listing.verification_details.toObject()
-      : {};
-
-    listing.verification_details = { ...current, ...verification_details };
+  if (!isPresent(status)) {
+    return next(httpError(400, 'status is required'));
   }
+
+  // Sending the current status again is a no-op, so retries stay harmless.
+  if (status === listing.status) {
+    return res.json({ data: listing.toPublic() });
+  }
+
+  const allowed = STATUS_TRANSITIONS[listing.status] || [];
+  if (!allowed.includes(status)) {
+    return next(
+      httpError(400, `status cannot change from ${listing.status} to ${status}`)
+    );
+  }
+
+  listing.status = status;
+  listing.updated_at = new Date();
+  await listing.save();
+
+  res.json({ data: listing.toPublic() });
+});
+
+// PATCH /api/foods/:id  (owner only: listing content)
+// food_details and location are replaced wholesale, so the client must send
+// the complete object. status/verification have their own endpoints and are
+// ignored here.
+router.patch('/:id', authenticate, async (req, res, next) => {
+  const listing = await findListing(req.params.id);
+
+  if (!listing) {
+    return next(httpError(404, 'Food listing not found'));
+  }
+
+  assertOwner(req, listing);
+
+  const { food_details, location } = req.body || {};
 
   if (food_details !== undefined) listing.food_details = food_details;
   if (location !== undefined) listing.location = location;
@@ -280,15 +470,21 @@ router.patch('/:id', async (req, res, next) => {
   res.json({ data: listing.toPublic() });
 });
 
-// DELETE /api/foods/:id
-router.delete('/:id', async (req, res, next) => {
+// DELETE /api/foods/:id  (owner only)
+router.delete('/:id', authenticate, async (req, res, next) => {
   const listing = await findListing(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));
   }
 
+  assertOwner(req, listing);
+
+  // Delete the document first: if unlinking fails we keep orphaned files
+  // rather than a listing that points at images that no longer exist.
   await listing.deleteOne();
+  await removeListingPhotos(listing);
+
   res.status(204).send();
 });
 

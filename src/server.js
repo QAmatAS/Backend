@@ -2,11 +2,14 @@ require('dotenv').config();
 
 const app = require('./app');
 const { connectDB, disconnectDB } = require('./config/db');
+const { assertJwtConfig } = require('./config/jwt');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 async function startServer({ port = PORT, host = HOST } = {}) {
+  assertJwtConfig();
+
   await connectDB();
 
   return new Promise((resolve, reject) => {

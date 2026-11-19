@@ -1,8 +1,34 @@
 const mongoose = require('mongoose');
 
+const STATUSES = ['available', 'reserved', 'picked_up', 'expired', 'cancelled'];
+const VERIFICATION_STATUSES = ['pending', 'approved', 'rejected'];
+
 // ---------------------------------------------------------------------------
 // Nested schemas (_id: false keeps the JSON identical to the API contract)
 // ---------------------------------------------------------------------------
+
+// GeoJSON twin of `coordinates`, in [longitude, latitude] order. A 2dsphere
+// index cannot be built on the { latitude, longitude } object, so this copy
+// exists purely for geospatial queries and is never returned by toPublic().
+const geoPointSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point',
+      required: true,
+    },
+    coordinates: {
+      type: [Number],
+      required: true,
+      validate: {
+        validator: (value) => Array.isArray(value) && value.length === 2,
+        message: 'geo coordinates must be [longitude, latitude]',
+      },
+    },
+  },
+  { _id: false }
+);
 
 const coordinatesSchema = new mongoose.Schema(
   {
@@ -55,6 +81,14 @@ const foodDetailsSchema = new mongoose.Schema(
       required: [true, 'quantity_portions is required'],
       min: [1, 'quantity_portions must be at least 1'],
     },
+    // Free string on purpose: contributors use "porsi", "kotak", "bungkus", and
+    // a closed enum would just block real cases. Never used for stock maths.
+    quantity_unit: {
+      type: String,
+      trim: true,
+      maxlength: [20, 'quantity_unit must be at most 20 characters'],
+      default: 'porsi',
+    },
     expiry_timestamp: {
       type: Date,
       required: [true, 'expiry_timestamp is required'],
@@ -79,6 +113,11 @@ const locationSchema = new mongoose.Schema(
     coordinates: {
       type: coordinatesSchema,
       required: [true, 'coordinates are required'],
+    },
+    geo: {
+      type: geoPointSchema,
+      // Internal: excluded from every normal query and from toPublic().
+      select: false,
     },
     pickup_notes: { type: String, default: '', trim: true, maxlength: 1000 },
     external_map_url: { type: String, default: '', trim: true },
@@ -113,8 +152,8 @@ const foodItemListingSchema = new mongoose.Schema(
     verification_status: {
       type: String,
       enum: {
-        values: ['pending', 'approved', 'rejected'],
-        message: 'verification_status must be pending, approved or rejected',
+        values: VERIFICATION_STATUSES,
+        message: `verification_status must be ${VERIFICATION_STATUSES.join(', ')}`,
       },
       default: 'pending',
       index: true,
@@ -136,8 +175,8 @@ const foodItemListingSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: {
-        values: ['available', 'reserved', 'picked_up', 'expired', 'cancelled'],
-        message: 'status must be available, reserved, picked_up, expired or cancelled',
+        values: STATUSES,
+        message: `status must be ${STATUSES.join(', ')}`,
       },
       default: 'available',
       index: true,
@@ -147,6 +186,30 @@ const foodItemListingSchema = new mongoose.Schema(
 );
 
 foodItemListingSchema.index({ status: 1, created_at: -1 });
+foodItemListingSchema.index({ 'location.geo': '2dsphere' });
+
+foodItemListingSchema.statics.STATUSES = STATUSES;
+foodItemListingSchema.statics.VERIFICATION_STATUSES = VERIFICATION_STATUSES;
+
+// Keeps location.geo in step with location.coordinates for every write path
+// (API create/patch, seeds, future imports). Runs before validation so the
+// index never sees a half-written point.
+foodItemListingSchema.pre('validate', function syncGeoPoint() {
+  const coordinates = this.location && this.location.coordinates;
+
+  if (
+    !coordinates ||
+    typeof coordinates.latitude !== 'number' ||
+    typeof coordinates.longitude !== 'number'
+  ) {
+    return;
+  }
+
+  this.location.geo = {
+    type: 'Point',
+    coordinates: [coordinates.longitude, coordinates.latitude],
+  };
+});
 
 function toIsoString(value) {
   return value ? new Date(value).toISOString() : null;
@@ -164,6 +227,7 @@ foodItemListingSchema.methods.toPublic = function toPublic() {
     food_id: this.food_id,
     contributor_id: this.contributor_id,
     created_at: toIsoString(this.created_at),
+    updated_at: toIsoString(this.updated_at),
     verification_status: this.verification_status,
     verification_details: {
       verified_by_admin_id: verification.verified_by_admin_id || null,
@@ -176,6 +240,7 @@ foodItemListingSchema.methods.toPublic = function toPublic() {
       category: details.category,
       dietary_tags: details.dietary_tags || [],
       quantity_portions: details.quantity_portions,
+      quantity_unit: details.quantity_unit || 'porsi',
       expiry_timestamp: toIsoString(details.expiry_timestamp),
       photo_urls: details.photo_urls || [],
     },

@@ -2,30 +2,12 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 
 const User = require('../models/User');
+const { signToken, getJwtExpiresIn } = require('../config/jwt');
 
 const router = express.Router();
 
-// GET /api/users
-router.get('/', async (req, res) => {
-  const users = await User.find().sort({ createdAt: 1 });
-  res.json({ data: users.map((user) => user.toPublic()) });
-});
-
-// GET /api/users/:id
-router.get('/:id', async (req, res, next) => {
-  const user = await User.findById(req.params.id);
-
-  if (!user) {
-    const error = new Error('User not found');
-    error.status = 404;
-    return next(error);
-  }
-
-  res.json({ data: user.toPublic() });
-});
-
-// POST /api/users  (register)
-router.post('/', async (req, res, next) => {
+// POST /api/register
+router.post('/register', async (req, res, next) => {
   const { name, email, password } = req.body || {};
 
   if (!name || !email || !password) {
@@ -57,17 +39,34 @@ router.post('/', async (req, res, next) => {
   res.status(201).json({ data: user.toPublic() });
 });
 
-// DELETE /api/users/:id
-router.delete('/:id', async (req, res, next) => {
-  const user = await User.findByIdAndDelete(req.params.id);
+// POST /api/login
+router.post('/login', async (req, res, next) => {
+  const { email, password } = req.body || {};
 
-  if (!user) {
-    const error = new Error('User not found');
-    error.status = 404;
+  if (!email || !password) {
+    const error = new Error('email and password are required');
+    error.status = 400;
     return next(error);
   }
 
-  res.status(204).send();
+  // passwordHash is select:false, so ask for it explicitly.
+  const user = await User.findOne({ email: String(email).trim().toLowerCase() }).select(
+    '+passwordHash'
+  );
+
+  // Same response for unknown email and wrong password, so accounts cannot be enumerated.
+  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+    const error = new Error('Invalid email or password');
+    error.status = 401;
+    return next(error);
+  }
+
+  res.json({
+    token: signToken(user),
+    tokenType: 'Bearer',
+    expiresIn: getJwtExpiresIn(),
+    user: user.toPublic(),
+  });
 });
 
 module.exports = router;
