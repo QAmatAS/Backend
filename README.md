@@ -1,341 +1,318 @@
-# Backend Starter
+# Backend
 
-A minimal Express.js + MongoDB backend starter. Plain JavaScript, no build step —
-just a clean structure you can grow into a real project.
+Express 5 + MongoDB API for a food-rescue mobile app: users post surplus food,
+others find it on a map and contact the contributor to pick it up.
 
 ## Requirements
 
-- Node.js 18 or newer (Node 20+ recommended)
+- Node.js 18 or newer (20+ recommended)
 - MongoDB running locally on port `27017`
 
-## Getting started
+## Quick start
 
 ```bash
 npm install
-cp .env.example .env   # then edit the values if needed
-npm run seed           # creates the demo accounts (safe to re-run)
-npm run seed:foods     # creates 10 demo food listings around Lowokwaru (safe to re-run)
-npm run dev            # http://localhost:3000 (auto-restarts on file changes)
+cp .env.example .env      # then edit the values
+npm run seed              # demo accounts (safe to re-run)
+npm run seed:foods        # 10 demo listings around Lowokwaru (safe to re-run)
+npm run seed:admin        # promote one account to admin
+npm run dev               # http://localhost:3000
 ```
 
-For production-style run:
-
-```bash
-npm start
-```
+For a production-style run use `npm start`.
 
 > On Windows PowerShell, if `npm` is blocked by the execution policy, use
-> `npm.cmd` instead (or run `Set-ExecutionPolicy -Scope Process Bypass`).
+> `npm.cmd`, or run `Set-ExecutionPolicy -Scope Process Bypass`.
+
+## Scripts
+
+| Script | What it does |
+| ------ | ------------ |
+| `npm start` | Run the server once |
+| `npm run dev` | Run with `node --watch` |
+| `npm run tunnel` | Start the API and expose it through localtunnel |
+| `npm run seed` | Create the demo users (idempotent) |
+| `npm run seed:foods` | Seed `dummy/food-listings.json` (idempotent) |
+| `npm run seed:admin` | Promote `ADMIN_EMAIL` to the admin role |
+| `npm run migrate:user-ids` | Backfill `user_id` for users created before it existed |
+| `npm run migrate:geo` | Backfill `location.geo` for listings created before it existed |
 
 ## Project structure
 
 ```
 .
-├── .env.example          # Sample environment variables
-├── package.json
-├── dummy
-│   └── food-listings.json # 10 full food listing payloads (Lowokwaru)
-├── uploads               # Uploaded images (served at /uploads, git-ignored)
+├── .env.example           # Sample environment variables
+├── dummy                  # Demo payloads used by the seed scripts
+├── postman                # API collections
+├── uploads                # Uploaded photos (git-ignored, served at /uploads)
 └── src
-    ├── server.js         # Connects to MongoDB, starts the HTTP server
-    ├── app.js            # Express app: middleware + route mounting
-    ├── seed.js           # Creates the demo users (idempotent)
-    ├── seedFoods.js      # Creates 10 demo food listings around Lowokwaru
-    ├── tunnel.js         # Starts the API and exposes it via localtunnel
+    ├── server.js          # Connects to MongoDB, starts the HTTP server
+    ├── app.js             # Express app: middleware + route mounting
+    ├── seed.js            # Demo users
+    ├── seedFoods.js       # Demo listings (dates shifted to stay current)
+    ├── seedAdmin.js       # Promotes one account to admin
+    ├── migrateUserIds.js  # Backfill user_id
+    ├── migrateGeo.js      # Backfill location.geo
+    ├── tunnel.js          # localtunnel helper
     ├── config
-    │   └── db.js         # Mongoose connection helper
+    │   ├── db.js          # Mongoose connection helper
+    │   └── jwt.js         # Secret, signing and verification in one place
     ├── models
-    │   ├── User.js       # User schema (unique email, bcrypt hash, timestamps)
-    │   └── FoodItemListing.js # Food listing schema (nested details, location, status)
+    │   ├── User.js        # Identity, role, contact info
+    │   └── FoodItemListing.js
     ├── routes
-    │   ├── index.js      # GET /api, GET /api/health
-    │   ├── login.js      # POST /api/login (JWT)
-    │   ├── foods.js      # Create / list / read / update / delete food listings
-    │   └── users.js      # Register / list / read / delete users
-    └── middleware
-        ├── notFound.js   # 404 handler
-        ├── upload.js     # multer disk storage for food photos
-        └── errorHandler.js # Central error handler
+    │   ├── index.js       # /api info (dev only) and /api/health
+    │   ├── auth.js        # POST /register, POST /login
+    │   ├── me.js          # GET /me, GET /me/listings
+    │   └── foods.js       # Explore, contribute, owner actions, moderation
+    ├── middleware
+    │   ├── auth.js        # authenticate, optionalAuth, requireRole
+    │   ├── upload.js      # multer disk storage for photos
+    │   ├── notFound.js
+    │   └── errorHandler.js
+    └── utils
+        └── validation.js  # Shared query/param helpers
 ```
 
-## Database
+## Authentication
 
-- Connection string: `mongodb://localhost:27017/backend` (database name `backend`,
-  collection `users` + `food_items`). Override it with `MONGODB_URI` in `.env`.
-- Mongoose is used for the schema, validation and queries.
-- Emails are stored lowercase and are unique (unique index on `users.email`).
-- Passwords are stored only as bcrypt hashes in `passwordHash`; the field is
-  `select: false`, so it is never returned unless explicitly requested (login does).
-- Users survive server restarts because they live in MongoDB, not process memory.
-- Uploaded food photos are stored as files in `uploads/foods/` on this server,
-  not in MongoDB; only their relative URLs are stored in `photo_urls`.
-- The server refuses to start if MongoDB is unreachable, and reports the database
-  state in `GET /api/health`.
+`POST /api/login` returns a JWT. Send it as `Authorization: Bearer <token>`.
 
-Run `npm run seed` once to create the demo accounts. It uses upserts, so running
-it again will not duplicate users or reset their passwords.
+- Tokens are signed with `JWT_SECRET` and live for `JWT_EXPIRES_IN` (default `1d`).
+- In production a missing `JWT_SECRET` stops the server at boot instead of failing the first login.
+- The user is re-read on every request, so deleting an account invalidates its tokens immediately.
 
-Run `npm run seed:foods` after that to fill the `food_items` collection with 10
-demo listings located around Kecamatan Lowokwaru, Kota Malang (see below). The
-data lives in `dummy/food-listings.json` as complete API payloads, exactly like
-the body of `POST /api/foods`, so you can also copy any entry into Postman. The
-seed is idempotent: demo documents use fixed ids `food_demo01`…`food_demo10`, so
-a re-run updates them instead of adding duplicates.
+Two roles:
 
-## Endpoints
+| Role | Can |
+| ---- | --- |
+| `contributor` (default) | Create listings, change status on **their own** listings, delete them |
+| `admin` | Everything above, plus approve/reject any listing |
 
-| Method | Path             | Description                          |
-| ------ | ---------------- | ------------------------------------ |
-| GET    | `/api`           | API info                             |
-| GET    | `/api/health`    | Health check (+ DB state)            |
-| POST   | `/api/login`     | Login, returns a JWT (`email`, `password`) |
-| GET    | `/api/users`     | List users                           |
-| GET    | `/api/users/:id` | Get one user (MongoDB ObjectId)      |
-| POST   | `/api/users`     | Register (`name`, `email`, `password` min 6 chars) |
-| DELETE | `/api/users/:id` | Delete user                          |
-| GET    | `/api/foods`     | List food listings (filters: `status`, `verification_status`, `contributor_id`, `limit`, `skip`) |
-| GET    | `/api/foods/:id` | Get one listing by `food_id` or ObjectId |
-| POST   | `/api/foods`     | Save a listing (JSON, or multipart with photos) |
-| PATCH  | `/api/foods/:id` | Update `status`, verification or listing content |
-| DELETE | `/api/foods/:id` | Delete a food listing                |
+Nothing grants admin implicitly — promote an account with `npm run seed:admin`.
 
 ### Demo accounts
 
-| Email               | Password      |
-| ------------------- | ------------- |
-| `alice@example.com` | `password123` |
-| `bob@example.com`   | `password123` |
+| Email | Password | Role |
+| ----- | -------- | ---- |
+| `alice@example.com` | `password123` | admin |
+| `bob@example.com` | `password123` | contributor |
+| `maya@example.com` | `password123` | contributor (`usr_9842a7f1`) |
+| `budi@example.com` | `password123` | contributor (`usr_3c1d9e2b`) |
 
-### Demo food listings
+Maya and Budi use fixed `user_id` values because the demo listings in
+`dummy/food-listings.json` reference them as `contributor_id`. Without those
+accounts the detail screen would have no contact number to show.
 
-`npm run seed:foods` inserts these 10 listings, all within Kecamatan Lowokwaru
-(approximate coordinates near real landmarks):
+## Endpoints
 
-| food_id | Title | Location | Coordinates | Status | Verification |
-|---|---|---|---|---|---|
-| `food_demo01` | Nasi Kotak Ayam Geprek | Kantin Pusat Universitas Brawijaya | -7.9526, 112.6144 | available | approved |
-| `food_demo02` | Roti Tawar & Pastry Sisa Toko | Toko Roti Dinoyo | -7.9407, 112.6062 | available | approved |
-| `food_demo03` | Sayur Sop & Tempe Goreng | Kos Putri Sumbersari | -7.9452, 112.6186 | available | pending |
-| `food_demo04` | Buah Potong Segar | Warung Bu Tini Tlogomas | -7.9324, 112.5988 | available | pending |
-| `food_demo05` | Nasi Uduk + Telur Balado | Rumah Makan Ketawanggede | -7.9570, 112.6078 | reserved | approved |
-| `food_demo06` | Kue Basah Aneka Ragam | Toko Kue Merjosari | -7.9368, 112.5995 | available | rejected |
-| `food_demo07` | Susu & Yogurt Mendekati Expired | Minimarket Suhat | -7.9518, 112.6183 | picked_up | approved |
-| `food_demo08` | Nasi Ayam Bakar Madura | Food Court Mojolangu | -7.9318, 112.6269 | available | approved |
-| `food_demo09` | Sandwich & Salad Kemasan | Tunjungsekar Bakery | -7.9355, 112.6306 | expired | approved |
-| `food_demo10` | Air Mineral & Teh Kemasan | Jatimulyo Green Cafe | -7.9420, 112.6385 | available | pending |
+`GET /api` (the endpoint list) only exists outside production.
 
-The mix covers every status except `cancelled` and all three verification states,
-so filters and UI states can be tested right away:
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| GET | `/api/health` | — | Health check plus database state |
+| POST | `/api/register` | — | Create an account (`name`, `email`, `password` ≥ 6) |
+| POST | `/api/login` | — | Returns a JWT |
+| GET | `/api/me` | Bearer | Current user, role, contact info, derived stats |
+| GET | `/api/me/listings` | Bearer | The signed-in user's own listings |
+| GET | `/api/foods` | optional | Explore: search, filters, radius, paging |
+| GET | `/api/foods/new` | Bearer | Notification poll: what appeared nearby since a cursor |
+| GET | `/api/foods/:id` | optional | One listing (`food_id` or ObjectId) plus its contributor |
+| POST | `/api/foods` | Bearer | Create a listing (JSON or multipart with photos) |
+| PATCH | `/api/foods/:id` | Bearer, owner | Update listing content |
+| PATCH | `/api/foods/:id/status` | Bearer, owner | Change the availability mark |
+| PATCH | `/api/foods/:id/verify` | Bearer, **admin** | Approve or reject a listing |
+| DELETE | `/api/foods/:id` | Bearer, owner | Delete a listing and its photos |
 
-```bash
-curl "http://localhost:3000/api/foods?status=available&limit=100"
-curl "http://localhost:3000/api/foods?verification_status=pending"
-curl "http://localhost:3000/api/foods?contributor_id=usr_9842a7f1"
-```
+### Listing shape
 
-The listings use two static demo contributor ids, `usr_9842a7f1` and
-`usr_3c1d9e2b` (they are plain strings, not references to the `users`
-collection).
-
-### Login example
-
-```bash
-curl -X POST http://localhost:3000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"alice@example.com","password":"password123"}'
-```
-
-Response:
-
-```json
+```jsonc
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "tokenType": "Bearer",
-  "expiresIn": "1d",
-  "user": {
-    "id": "6afa86b37cdc4ad7af40f014",
-    "name": "Alice",
-    "email": "alice@example.com",
-    "createdAt": "2026-11-16T04:29:39.475Z",
-    "updatedAt": "2026-11-16T04:29:39.475Z"
-  }
+  "food_id": "food_8821",
+  "contributor_id": "usr_9842a7f1",   // equals User.user_id
+  "created_at": "2026-11-22T09:00:00.000Z",
+  "updated_at": "2026-11-22T09:00:00.000Z",
+  "verification_status": "pending",   // pending | approved | rejected
+  "verification_details": {
+    "verified_by_admin_id": null,
+    "verified_at": null,
+    "rejection_reason": null
+  },
+  "food_details": {
+    "title": "Nasi Kotak Ayam Geprek",
+    "description": "",
+    "category": "Makanan Berat",
+    "dietary_tags": ["Halal"],
+    "quantity_portions": 8,
+    "quantity_unit": "porsi",          // free string: porsi, kotak, bungkus …
+    "expiry_timestamp": "2026-11-23T16:00:00.000Z",
+    "photo_urls": ["/uploads/foods/Image_food_8821.jpg"]
+  },
+  "location": {
+    "location_name": "Kantin Pusat Universitas Brawijaya",
+    "address_text": "Jl. Veteran, Lowokwaru, Malang",
+    "coordinates": { "latitude": -7.9526, "longitude": 112.6144 },
+    "pickup_notes": "Datang ke kantin lantai 1.",
+    "external_map_url": "https://maps.google.com/?q=-7.9526,112.6144"
+  },
+  "status": "available"
 }
 ```
 
-- Wrong password and unknown email both return `401 Invalid email or password`.
-- Missing fields return `400`; duplicate registration returns `409`.
-- A malformed user id returns `400 Invalid id`.
-- The token is signed with `JWT_SECRET` and lives for `JWT_EXPIRES_IN` (default `1d`).
-  Set both in `.env`; production refuses to start a login without a secret.
+`quantity_portions` and `quantity_unit` are display labels only — nothing is
+decremented. **`status` is the single source of truth for availability.**
 
-Route matching is case-insensitive by default in Express, so `/api/LOGIN` works too.
-
-### Register + login example
-
-```bash
-curl -X POST http://localhost:3000/api/users \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Charlie","email":"charlie@example.com","password":"secret123"}'
-```
-
-### Food listing example
-
-```bash
-curl -X POST http://localhost:3000/api/foods \
-  -H "Content-Type: application/json" \
-  -d '{
-    "food_id": "food_8821",
-    "contributor_id": "usr_9842a7f1",
-    "created_at": "2026-11-08T09:00:00Z",
-    "verification_status": "approved",
-    "verification_details": {
-      "verified_by_admin_id": "adm_001",
-      "verified_at": "2026-11-08T09:15:00Z",
-      "rejection_reason": null
-    },
-    "food_details": {
-      "title": "Nasi Kotak Ayam Bakar (5 Porsi)",
-      "description": "Sisa acara ulang tahun keluarga, kondisi masih hangat dan higienis.",
-      "category": "Makanan Berat",
-      "dietary_tags": ["Halal", "Bebas Kacang"],
-      "quantity_portions": 5,
-      "expiry_timestamp": "2026-11-08T20:00:00Z",
-      "photo_urls": ["https://images.app.example/foods/food_8821_1.jpg"]
-    },
-    "location": {
-      "location_name": "Depan Pos Satpam Kompleks Asri",
-      "address_text": "Jl. Mawar No. 12, Lowokwaru, Malang",
-      "coordinates": { "latitude": -7.9521, "longitude": 112.6142 },
-      "pickup_notes": "Makanan ditaruh di meja pos satpam.",
-      "external_map_url": "https://maps.google.com/?q=-7.9521,112.6142"
-    },
-    "status": "available"
-  }'
-```
-
-- Stored in the `food_items` collection; the response is `201 { "data": { ... } }`
-  with `_id`/`__v` hidden.
-- The exact same payload shape is used by `dummy/food-listings.json`, which
-  `npm run seed:foods` inserts/updates.
-- `food_id` is optional — generated as `food_<8 hex chars>` when omitted. It is unique:
-  duplicates return `409`.
-- Defaults: `created_at` = now, `status` = `available`,
-  `verification_status` = `pending`.
-- `verification_status: "approved"` sets `verified_at` to the current time if it is
-  missing; `"rejected"` requires `verification_details.rejection_reason`.
-- `location.external_map_url` is derived from `coordinates` when omitted.
-- Missing required fields (`contributor_id`, `food_details.title`,
-  `food_details.category`, `food_details.quantity_portions`,
-  `food_details.expiry_timestamp`, `location.location_name`, coordinates) return `400`.
-
-### Uploading listing photos
-
-`POST /api/foods` also accepts `multipart/form-data`, so photos can be uploaded
-together with a new listing:
-
-- `data` — the same JSON payload as above, sent as a text field.
-- `photos` — up to 5 files (`jpg`, `jpeg`, `png`, `webp`, `gif`), max 5 MB each.
-
-```bash
-curl -X POST http://localhost:3000/api/foods \
-  -F 'data={"contributor_id":"usr_9842a7f1","food_details":{"title":"Nasi Box","category":"Makanan Berat","quantity_portions":3,"expiry_timestamp":"2026-11-18T12:00:00Z"},"location":{"location_name":"Kantin UB","coordinates":{"latitude":-7.9526,"longitude":112.6144}},"status":"available"}' \
-  -F 'photos=@nasi.jpg' \
-  -F 'photos=@nasi-2.jpg'
-```
-
-Files are written to `uploads/foods/` and renamed to the listing's `food_id`,
-then their relative paths are appended to `food_details.photo_urls`:
+`GET /api/foods/:id` additionally returns a `contributor` block resolved from the
+owner account at read time:
 
 ```json
-"photo_urls": ["/uploads/foods/Image_food_8821.png"]
+"contributor": { "user_id": "usr_9842a7f1", "display_name": "Maya Lin",
+                 "avatar_url": "", "phone": "+6281234567890" }
 ```
 
-- Naming format is `Image_<food_id>.<ext>`, e.g. `food_8821` →
-  `Image_food_8821.png`.
-- Extra photos for the same listing get a numeric suffix: `Image_food_8821_2.png`,
-  `Image_food_8821_3.png`, … (up to 5).
-- Characters outside `A-Z a-z 0-9 _ -` in `food_id` are replaced with `_`, so a
-  crafted id cannot write outside the uploads folder.
-- Uploading again with the same (currently unused) `food_id` overwrites the base
-  file name.
-- `GET /uploads/foods/<file>` serves the image directly (`express.static`).
-- Compose full URLs on the client with `${baseUrl}${photoUrl}`. The stored path
-  has no host, so it works on localhost, a LAN IP and a localtunnel URL.
-- Failed requests (wrong file type, over 5 MB, invalid listing, duplicate
-  `food_id`) delete the just-uploaded files, so no orphans are left behind.
-- `uploads/` is git-ignored; only `.gitkeep` is tracked.
-- Plain JSON requests and external `photo_urls` keep working exactly as before.
-- In Postman: Body → **form-data**, add `data` as text (the JSON), and `photos`
-  as **File** (repeat the key for multiple images).
+It is `null` if the account no longer exists, and never contains an email.
+The list endpoints omit it to keep the feed light.
+
+### Status transitions
+
+```
+available → reserved | cancelled | expired
+reserved  → available | picked_up | cancelled
+picked_up → terminal
+cancelled → terminal
+expired   → available
+```
+
+Anything else returns `400`. Sending the current status again is a `200` no-op.
+
+### Explore: `GET /api/foods`
+
+| Query | Default | Notes |
+| ----- | ------- | ----- |
+| `q` | — | Case-insensitive search over title and description (regex-escaped) |
+| `category` | — | Exact match, case-insensitive |
+| `status` | all except `cancelled` | Enum value, validated |
+| `verification_status` | all except `rejected` | Enum value, validated |
+| `contributor_id` | — | Filter by owner |
+| `lat`, `lng` | — | Must be sent together |
+| `radiusKm` | `5` | Only with `lat`/`lng`, max `100` |
+| `page` | `1` | 1-based |
+| `limit` | `20` | Max `100` |
+
+Response: `{ count, total, page, limit, hasMore, data }`. With `lat`/`lng`
+results come back nearest-first; otherwise newest-first.
+
+### Notifications: `GET /api/foods/new`
+
+```
+GET /api/foods/new?lat=-7.9526&lng=112.6144&radiusKm=5&since=2026-11-22T09:00:00.000Z
+→ { server_time, count, items: [{ food_id, title, quantity_portions, quantity_unit, created_at }] }
+```
+
+Returns only listings that are `available`, not `rejected`, not the caller's own,
+inside the radius, created strictly after `since`, and expiring more than
+**45 minutes** from now.
+
+- **Omit `since`** to bootstrap: `count` is `0` and you get a `server_time` to
+  store. This stops a fresh install notifying about food that was already there.
+- **Always use the returned `server_time` as the next `since`.** Using the phone
+  clock instead means a skewed device silently replays or skips listings.
+- `items` is a preview capped at 20; `count` is the true number of matches.
+
+Notification frequency (cooldown, quiet hours, daily cap) is decided by the
+client — it is a local notification, so the app owns that policy.
+
+### Creating a listing
+
+`POST /api/foods` accepts JSON, or `multipart/form-data` with a `data` text field
+holding the same JSON plus up to five `photos` files:
+
+```bash
+curl -X POST http://localhost:3000/api/foods \
+  -H "Authorization: Bearer $TOKEN" \
+  -F 'data={"food_details":{"title":"Nasi Box","category":"Makanan Berat","quantity_portions":3,"expiry_timestamp":"2026-12-01T12:00:00Z"},"location":{"location_name":"Kantin UB","coordinates":{"latitude":-7.9526,"longitude":112.6144}}}' \
+  -F 'photos=@nasi.jpg'
+```
+
+- `contributor_id` is taken from the token; any value in the body is ignored.
+- Every new listing starts `status: "available"` and `verification_status: "pending"`.
+  Self-approval is not possible.
+- `food_id` is optional (`food_<8hex>` when omitted) and unique.
+- `location.external_map_url` is derived from the coordinates when omitted.
+- Photos: JPEG/PNG/WEBP/GIF, max 5 MB each, max 5 per listing. Stored in
+  `uploads/foods/` as `Image_<food_id>.<ext>` and served from `/uploads/...`.
+  `photo_urls` are **relative**, so the client prefixes its base URL.
+- `DELETE` removes the listing's own photo files from disk.
+
+## Errors
+
+All errors use the same envelope:
+
+```json
+{ "error": { "message": "Food listing not found" } }
+```
+
+| Status | When |
+| ------ | ---- |
+| 400 | Validation, bad enum/query value, illegal status transition |
+| 401 | Missing, invalid or expired token |
+| 403 | Authenticated but not the owner, or not an admin |
+| 404 | Unknown route or listing |
+| 409 | Duplicate email, `user_id` or `food_id` |
+| 500 | Masked as `Internal server error` |
+
+## Upgrading an existing database
+
+Two fields were added after the first version. Run these once against any
+database created before them — they are idempotent:
+
+```bash
+npm run migrate:user-ids   # users created before user_id existed
+npm run migrate:geo        # listings created before location.geo existed
+```
+
+Without `migrate:geo`, older listings are invisible to the radius queries.
+Without `migrate:user-ids`, a user cannot be matched to their listings.
 
 ## Postman
 
-Import the collections from the `postman/` folder:
+Import both collections from `postman/`:
 
-- `Backend-Login.postman_collection.json` — health check + login
-  (success, wrong password `401`, missing fields `400`).
-- `Backend-Foods.postman_collection.json` — creates, reads, updates and deletes
-  food listings, with assertions on HTTP status, response shape, MongoDB
-  persistence, validation and error messages. Folder **1b. Photo upload
-  (multipart)** uploads `postman/sample-food.png` and verifies the stored name
-  (`Image_<food_id>.png`), the served image, duplicate `409`, missing `data`
-  `400`, and cleanup.
+- `Backend-Auth.postman_collection.json` — health, register, login, `/api/me`
+  (10 requests).
+- `Backend-Foods.postman_collection.json` — explore, contribute, owner actions,
+  moderation and cleanup (30 requests).
 
-Set the `baseUrl` collection variable to `http://localhost:3000` (default) or
-`http://192.168.1.77:3000` when the API is reached from another machine. Run the
-Foods collection from top to bottom: it generates its own test data (`food_test_*`,
-`food_pm_upload_*`) and deletes its test documents in the last folder, so it is
-safe to re-run.
+Set `baseUrl` (`http://localhost:3000`, or your LAN IP / tunnel URL) and run each
+collection **top to bottom**: the Auth collection saves the token, and the Foods
+collection creates its own listings and deletes them in the final folder, so it is
+safe to re-run. The multipart request bundles `postman/sample-food.png`; if
+Postman cannot resolve that relative path, select the file manually on the
+`photos` row.
 
-For the upload folder, the `photos` file field points to
-`postman/sample-food.png`. If Postman cannot resolve that bundled relative path,
-select the file manually in the request's **Body** tab (form-data row `photos`).
-Deleting the test listing does not remove the image from `uploads/foods/` — the
-folder's last request asserts this current behavior, so delete the file manually
-if you want a clean disk.
-
-## Expose the API with localtunnel
-
-Share the local API with a phone or another machine without deploying:
+## Tunnel
 
 ```bash
 npm run tunnel
 ```
 
-This starts the server exactly like `npm start`, then opens a public
-`https://<random>.loca.lt` URL and prints it in the terminal. Keep the terminal
-open; `Ctrl+C` stops both the tunnel and the server. An internet connection is
-required.
+Starts the server and exposes it at a **fixed** public address:
 
-- Use the printed URL as `baseUrl` in Postman or as the API base URL in the app.
-- Set `TUNNEL_SUBDOMAIN=my-unique-name` in `.env` to request a fixed subdomain
-  (`https://my-unique-name.loca.lt`); it must not already be taken.
-- localtunnel may show a password/reminder page when the URL is opened in a
-  browser: enter the public IP shown at <https://loca.lt/mytunnelpassword>. API
-  clients can send the header `bypass-tunnel-reminder: true` if they receive
-  that HTML page instead of JSON.
-- The tunnel forwards to the port in `PORT` (default `3000`) and is meant for
-  development only, not as a production deployment.
+```
+https://spoonshare-test-tunnel.loca.lt
+```
 
-## How to extend
+Because the name is fixed, the mobile app can keep a single base URL instead of
+being reconfigured after every restart. Override it with `TUNNEL_SUBDOMAIN` in
+`.env` if that name is already taken — the script warns if localtunnel hands back
+a different one.
 
-- **Add a route:** create `src/routes/products.js`, export an `express.Router()`,
-  then mount it in `src/routes/index.js` with `router.use('/products', productsRouter)`.
-- **Add a model:** create `src/models/Product.js` with a Mongoose schema, then use
-  it in the route with `await Product.find()` / `await Product.create(...)`.
-  Express 5 forwards rejected promises to the error handler automatically.
-- **Errors:** call `next(err)` from a route and set `err.status`; the central
-  error handler formats the response. Mongoose validation, invalid ObjectIds and
-  duplicate keys are already mapped to `400`/`409`.
-- **Environment:** all secrets belong in `.env` (already git-ignored). Read them
-  with `process.env.KEY`.
+If a browser shows the localtunnel reminder page, API clients can send
+`bypass-tunnel-reminder: true`. Development only, not a deployment.
 
-## Scripts
+## Deployment notes
 
-| Script        | What it does                                  |
-| ------------- | --------------------------------------------- |
-| `npm start`   | Run the server once                           |
-| `npm run dev` | Run with `node --watch` (restart on changes)  |
-| `npm run tunnel` | Start the API and open a public localtunnel URL |
-| `npm run seed`| Create the demo users in MongoDB              |
-| `npm run seed:foods` | Seed `dummy/food-listings.json` into MongoDB |
+- Set `JWT_SECRET` (the server refuses to boot in production without it).
+- Point `MONGODB_URI` at your database.
+- Uploaded photos live on local disk under `uploads/`. A stateless host needs
+  persistent storage or an object store before this can scale.

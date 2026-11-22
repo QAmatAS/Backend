@@ -36,15 +36,6 @@ const personalInfoSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const statsSchema = new mongoose.Schema(
-  {
-    total_shared_submitted: { type: Number, default: 0, min: 0 },
-    total_shared_approved: { type: Number, default: 0, min: 0 },
-    rating: { type: Number, default: 0, min: 0, max: 5 },
-  },
-  { _id: false }
-);
-
 const userSchema = new mongoose.Schema(
   {
     user_id: {
@@ -90,10 +81,6 @@ const userSchema = new mongoose.Schema(
       type: personalInfoSchema,
       default: () => ({}),
     },
-    stats: {
-      type: statsSchema,
-      default: () => ({}),
-    },
   },
   { timestamps: true }
 );
@@ -104,7 +91,6 @@ userSchema.statics.generateUserId = generateUserId;
 // internal Mongo fields.
 userSchema.methods.toPublic = function toPublic() {
   const info = this.personal_info || {};
-  const stats = this.stats || {};
 
   return {
     id: this._id.toString(),
@@ -117,11 +103,6 @@ userSchema.methods.toPublic = function toPublic() {
       avatar_url: info.avatar_url || '',
       bio: info.bio || '',
       phone: info.phone || '',
-    },
-    stats: {
-      total_shared_submitted: stats.total_shared_submitted || 0,
-      total_shared_approved: stats.total_shared_approved || 0,
-      rating: stats.rating || 0,
     },
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,

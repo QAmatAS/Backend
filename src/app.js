@@ -14,7 +14,6 @@ const app = express();
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Locally uploaded images, e.g. http://localhost:3000/uploads/foods/<file>.jpg
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));

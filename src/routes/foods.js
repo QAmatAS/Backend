@@ -6,7 +6,13 @@ const mongoose = require('mongoose');
 
 const FoodItemListing = require('../models/FoodItemListing');
 const User = require('../models/User');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
+const {
+  httpError,
+  escapeRegex,
+  parseEnumParam,
+  parseBoundedInt,
+} = require('../utils/validation');
 const {
   uploadFoodPhotos,
   renameUploadedPhotos,
@@ -27,12 +33,6 @@ const STATUS_TRANSITIONS = {
   expired: ['available'],
 };
 
-function httpError(status, message) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
-}
-
 function generateFoodId() {
   return `food_${crypto.randomBytes(4).toString('hex')}`;
 }
@@ -42,33 +42,13 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const DEFAULT_RADIUS_KM = 5;
 const MAX_RADIUS_KM = 100;
-
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+// Notification poll: only food the user can still reach in time, and only a
+// short preview list (the notification shows a count, not a full feed).
+const EXPIRY_GRACE_MINUTES = 45;
+const NEW_PREVIEW_LIMIT = 20;
 
 function isPresent(value) {
   return value !== undefined && value !== null && value !== '';
-}
-
-/**
- * Validates an optional enum query parameter. Returns null when absent, so a
- * typo produces 400 instead of a silently empty page.
- */
-function parseEnumParam(value, allowed, field) {
-  if (!isPresent(value)) return null;
-
-  if (!allowed.includes(value)) {
-    throw httpError(400, `${field} must be one of: ${allowed.join(', ')}`);
-  }
-
-  return value;
-}
-
-function parseBoundedInt(value, fallback, min, max) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, min), max);
 }
 
 /**
@@ -364,6 +344,69 @@ async function withContributor(listing) {
   };
 }
 
+// GET /api/foods/new  (notification poll: anything nearby since <since>?)
+// Registered before /:id so "new" is not captured as a listing id.
+router.get('/new', authenticate, async (req, res) => {
+  // Read the clock before querying: an item created while this request runs
+  // must still be newer than the returned server_time, otherwise the next poll
+  // (which uses that value as its cursor) would skip it forever.
+  const now = new Date();
+
+  const geo = parseGeoQuery(req.query.lat, req.query.lng, req.query.radiusKm);
+
+  if (!geo) {
+    throw httpError(400, 'lat and lng are required');
+  }
+
+  // No cursor means "I just started": answer with nothing so a fresh install
+  // does not notify about food that was already on the map.
+  const cursor = isPresent(req.query.since)
+    ? parseDate(req.query.since, 'since')
+    : now;
+
+  const filter = {
+    // Never notify someone about their own listing.
+    contributor_id: { $ne: req.user.user_id },
+    status: 'available',
+    verification_status: { $ne: 'rejected' },
+    created_at: { $gt: cursor },
+    // Skip food that will expire before the user could realistically arrive.
+    'food_details.expiry_timestamp': {
+      $gt: new Date(now.getTime() + EXPIRY_GRACE_MINUTES * 60 * 1000),
+    },
+    'location.geo': {
+      $geoWithin: {
+        $centerSphere: [
+          [geo.longitude, geo.latitude],
+          geo.radiusKm / EARTH_RADIUS_KM,
+        ],
+      },
+    },
+  };
+
+  const [listings, count] = await Promise.all([
+    FoodItemListing.find(filter)
+      .sort({ created_at: -1 })
+      .limit(NEW_PREVIEW_LIMIT)
+      .select(
+        'food_id created_at food_details.title food_details.quantity_portions food_details.quantity_unit'
+      ),
+    FoodItemListing.countDocuments(filter),
+  ]);
+
+  res.json({
+    server_time: now.toISOString(),
+    count,
+    items: listings.map((listing) => ({
+      food_id: listing.food_id,
+      title: listing.food_details?.title,
+      quantity_portions: listing.food_details?.quantity_portions,
+      quantity_unit: listing.food_details?.quantity_unit || 'porsi',
+      created_at: listing.created_at ? listing.created_at.toISOString() : null,
+    })),
+  });
+});
+
 // GET /api/foods/:id  (accepts food_id or Mongo ObjectId)
 router.get('/:id', async (req, res, next) => {
   const listing = await findListing(req.params.id);
@@ -444,6 +487,36 @@ router.patch('/:id/status', authenticate, async (req, res, next) => {
   await listing.save();
 
   res.json({ data: listing.toPublic() });
+});
+
+// PATCH /api/foods/:id/verify  (admin only: approval workflow)
+router.patch('/:id/verify', authenticate, requireRole('admin'), async (req, res, next) => {
+  const listing = await findListing(req.params.id);
+
+  if (!listing) {
+    return next(httpError(404, 'Food listing not found'));
+  }
+
+  const { decision, reason } = req.body || {};
+
+  if (!['approved', 'rejected'].includes(decision)) {
+    return next(httpError(400, 'decision must be approved or rejected'));
+  }
+
+  if (decision === 'rejected' && !isPresent(reason)) {
+    return next(httpError(400, 'reason is required when rejecting a listing'));
+  }
+
+  listing.verification_status = decision;
+  listing.verification_details = {
+    verified_by_admin_id: req.user.user_id,
+    verified_at: new Date(),
+    rejection_reason: decision === 'rejected' ? String(reason).trim() : null,
+  };
+  listing.updated_at = new Date();
+  await listing.save();
+
+  res.json({ data: await withContributor(listing) });
 });
 
 // PATCH /api/foods/:id  (owner only: listing content)

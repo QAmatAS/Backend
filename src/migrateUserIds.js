@@ -24,9 +24,6 @@ async function migrate() {
     if (!user.user_id) patch.user_id = User.generateUserId();
     if (!user.role) patch.role = 'contributor';
     if (!user.personal_info) patch.personal_info = { display_name: user.name || '' };
-    if (!user.stats) {
-      patch.stats = { total_shared_submitted: 0, total_shared_approved: 0, rating: 0 };
-    }
 
     if (Object.keys(patch).length === 0) continue;
 

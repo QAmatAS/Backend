@@ -55,7 +55,6 @@ async function seed() {
           user_id: demo.user_id || User.generateUserId(),
           role: 'contributor',
           personal_info: { display_name: demo.name, ...(demo.personal_info || {}) },
-          stats: { total_shared_submitted: 0, total_shared_approved: 0, rating: 0 },
         },
       },
       { upsert: true }

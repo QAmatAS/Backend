@@ -7,22 +7,29 @@ const foodsRouter = require('./foods');
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
-  res.json({
-    message: 'API is running',
-    endpoints: [
-      'GET /api/health',
-      'POST /api/register',
-      'POST /api/login',
-      'GET /api/me',
-      'GET /api/foods',
-      'GET /api/foods/:id',
-      'POST /api/foods',
-      'PATCH /api/foods/:id',
-      'DELETE /api/foods/:id',
-    ],
+// Development helper only: the production API should not advertise its surface.
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/', (req, res) => {
+    res.json({
+      message: 'API is running',
+      endpoints: [
+        'GET /api/health',
+        'POST /api/register',
+        'POST /api/login',
+        'GET /api/me',
+        'GET /api/me/listings',
+        'GET /api/foods',
+        'GET /api/foods/new',
+        'GET /api/foods/:id',
+        'POST /api/foods',
+        'PATCH /api/foods/:id',
+        'PATCH /api/foods/:id/status',
+        'PATCH /api/foods/:id/verify',
+        'DELETE /api/foods/:id',
+      ],
+    });
   });
-});
+}
 
 router.get('/health', (req, res) => {
   res.json({

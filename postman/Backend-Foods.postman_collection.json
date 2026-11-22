@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Backend Starter - Food Listings",
-    "description": "Tests for the FoodItemListing API (Express + MongoDB). Start the backend with `npm run dev`, then run this collection top to bottom. Each request asserts HTTP status, response shape, MongoDB persistence, validation and error messages. The Delete folder removes the test documents, so the collection is safe to re-run. Folder 1b uploads postman/sample-food.png (select that file manually if Postman cannot resolve the relative path).",
+    "name": "Backend - Foods",
+    "description": "Explore, contribute, moderation and cleanup. Run top to bottom: it creates its own listings and deletes them at the end. Requires `npm run seed`, `npm run seed:foods` and `npm run seed:admin` (alice is the admin). The multipart request bundles postman/sample-food.png; if Postman cannot resolve it, select the file manually on the `photos` row.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,15 +10,27 @@
       "value": "http://localhost:3000"
     },
     {
-      "key": "foodId",
+      "key": "token",
       "value": ""
     },
     {
-      "key": "pendingFoodId",
+      "key": "adminToken",
       "value": ""
     },
     {
-      "key": "autoFoodId",
+      "key": "myUserId",
+      "value": ""
+    },
+    {
+      "key": "createdId",
+      "value": ""
+    },
+    {
+      "key": "spoofId",
+      "value": ""
+    },
+    {
+      "key": "uploadId",
       "value": ""
     },
     {
@@ -26,21 +38,16 @@
       "value": ""
     },
     {
-      "key": "uploadedFoodId",
-      "value": ""
-    },
-    {
-      "key": "uploadedPhotoUrl",
+      "key": "serverTime",
       "value": ""
     }
   ],
   "item": [
     {
-      "name": "1. Create",
-      "description": "Create food listings and validation cases.",
+      "name": "0. Setup",
       "item": [
         {
-          "name": "Create listing (full payload)",
+          "name": "Login - contributor (maya)",
           "request": {
             "method": "POST",
             "header": [
@@ -49,23 +56,364 @@
                 "value": "application/json"
               }
             ],
+            "url": "{{baseUrl}}/api/login",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"food_id\": \"{{pendingFoodId}}\",\n  \"contributor_id\": \"usr_9842a7f1\",\n  \"created_at\": \"2026-11-08T09:00:00Z\",\n  \"verification_status\": \"approved\",\n  \"verification_details\": {\n    \"verified_by_admin_id\": \"adm_001\",\n    \"verified_at\": \"2026-11-08T09:15:00Z\",\n    \"rejection_reason\": null\n  },\n  \"food_details\": {\n    \"title\": \"Nasi Kotak Ayam Bakar (5 Porsi)\",\n    \"description\": \"Sisa acara ulang tahun keluarga, kondisi masih hangat dan higienis.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\n      \"Halal\",\n      \"Bebas Kacang\"\n    ],\n    \"quantity_portions\": 5,\n    \"expiry_timestamp\": \"2026-11-08T20:00:00Z\",\n    \"photo_urls\": [\n      \"https://images.app.example/foods/food_8821_1.jpg\"\n    ]\n  },\n  \"location\": {\n    \"location_name\": \"Depan Pos Satpam Kompleks Asri\",\n    \"address_text\": \"Jl. Mawar No. 12, Lowokwaru, Malang\",\n    \"coordinates\": {\n      \"latitude\": -7.9521,\n      \"longitude\": 112.6142\n    },\n    \"pickup_notes\": \"Makanan ditaruh di meja pos satpam. Silakan ambil langsung tanpa perlu mengetuk rumah.\",\n    \"external_map_url\": \"https://maps.google.com/?q=-7.9521,112.6142\"\n  },\n  \"status\": \"available\"\n}",
+              "raw": "{\n  \"email\": \"maya@example.com\",\n  \"password\": \"password123\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('token', body.token);",
+                  "pm.collectionVariables.set('myUserId', body.user.user_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - admin (alice)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('this account is an admin', () => pm.expect(body.user.role).to.eql('admin'));",
+                  "pm.collectionVariables.set('adminToken', body.token);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Explore",
+      "item": [
+        {
+          "name": "List - default",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('paging meta present', () => pm.expect(body).to.have.all.keys('count', 'total', 'page', 'limit', 'hasMore', 'data'));",
+                  "pm.test('rejected listings are hidden', () => pm.expect(body.data.some((x) => x.verification_status === 'rejected')).to.be.false);",
+                  "pm.test('pending listings stay visible', () => pm.expect(body.data.some((x) => x.verification_status === 'pending')).to.be.true);",
+                  "pm.test('items carry quantity_unit', () => body.data.forEach((x) => pm.expect(x.food_details.quantity_unit).to.be.a('string')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods?q=nasi&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('matches title or description', () => body.data.forEach((x) => { const text = (x.food_details.title + ' ' + x.food_details.description).toLowerCase(); pm.expect(text).to.include('nasi'); }));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - geo radius",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods?lat=-7.9526&lng=112.6144&radiusKm=1&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('total matches the page', () => pm.expect(body.total).to.eql(body.data.length));",
+                  "pm.test('finds the nearby seed listings', () => pm.expect(body.total).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - paging",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods?limit=2&page=1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('limit is respected', () => pm.expect(body.data.length).to.be.at.most(2));",
+                  "pm.test('page is echoed', () => pm.expect(body.page).to.eql(1));",
+                  "pm.test('hasMore is a boolean', () => pm.expect(body.hasMore).to.be.a('boolean'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - invalid status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods?status=nope"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail - contributor block",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods/food_demo01"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const listing = pm.response.json().data;",
+                  "pm.test('resolves the contributor', () => pm.expect(listing.contributor).to.include.keys('user_id', 'display_name', 'avatar_url', 'phone'));",
+                  "pm.test('has a contact number', () => pm.expect(listing.contributor.phone).to.be.a('string').and.not.empty);",
+                  "pm.test('never leaks the contributor email', () => pm.expect(listing.contributor.email).to.be.undefined);",
+                  "pm.test('hides the internal geo field', () => pm.expect(listing.location.geo).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail - not found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods/food_does_not_exist"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New - bootstrap cursor",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/new?lat=-7.9526&lng=112.6144&radiusKm=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('no cursor means nothing to announce', () => pm.expect(body.count).to.eql(0));",
+                  "pm.test('server_time is usable as a cursor', () => pm.expect(body.server_time).to.match(/Z$/));",
+                  "pm.collectionVariables.set('serverTime', body.server_time);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Contribute",
+      "item": [
+        {
+          "name": "Create - JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"food_details\": {\n    \"title\": \"Nasi Kotak Uji Postman\",\n    \"description\": \"Dibuat oleh koleksi Postman, aman dihapus.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\n      \"Halal\"\n    ],\n    \"quantity_portions\": 3,\n    \"quantity_unit\": \"porsi\",\n    \"expiry_timestamp\": \"2030-01-01T12:00:00Z\",\n    \"photo_urls\": []\n  },\n  \"location\": {\n    \"location_name\": \"Kantin UB\",\n    \"address_text\": \"Jl. Veteran, Lowokwaru, Malang\",\n    \"coordinates\": {\n      \"latitude\": -7.9526,\n      \"longitude\": 112.6144\n    },\n    \"pickup_notes\": \"Ambil di kantin lantai 1.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const listing = pm.response.json().data;",
+                  "pm.test('owner comes from the token', () => pm.expect(listing.contributor_id).to.eql(pm.collectionVariables.get('myUserId')));",
+                  "pm.test('always starts pending and available', () => { pm.expect(listing.verification_status).to.eql('pending'); pm.expect(listing.status).to.eql('available'); });",
+                  "pm.collectionVariables.set('createdId', listing.food_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create - spoofed owner and approval",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"food_details\": {\n    \"title\": \"Percobaan Klaim Palsu\",\n    \"description\": \"Dibuat oleh koleksi Postman, aman dihapus.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\n      \"Halal\"\n    ],\n    \"quantity_portions\": 3,\n    \"quantity_unit\": \"porsi\",\n    \"expiry_timestamp\": \"2030-01-01T12:00:00Z\",\n    \"photo_urls\": []\n  },\n  \"location\": {\n    \"location_name\": \"Kantin UB\",\n    \"address_text\": \"Jl. Veteran, Lowokwaru, Malang\",\n    \"coordinates\": {\n      \"latitude\": -7.9526,\n      \"longitude\": 112.6144\n    },\n    \"pickup_notes\": \"Ambil di kantin lantai 1.\"\n  },\n  \"contributor_id\": \"usr_3c1d9e2b\",\n  \"verification_status\": \"approved\",\n  \"status\": \"reserved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const listing = pm.response.json().data;",
+                  "pm.test('ignores the body contributor_id', () => { pm.expect(listing.contributor_id).to.eql(pm.collectionVariables.get('myUserId')); pm.expect(listing.contributor_id).to.not.eql('usr_3c1d9e2b'); });",
+                  "pm.test('ignores self-approval', () => pm.expect(listing.verification_status).to.eql('pending'));",
+                  "pm.test('ignores a forced status', () => pm.expect(listing.status).to.eql('available'));",
+                  "pm.collectionVariables.set('spoofId', listing.food_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create - multipart photo upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"food_id\":\"{{uploadFoodId}}\",\"food_details\":{\"title\":\"Nasi Box Upload Postman\",\"category\":\"Makanan Berat\",\"quantity_portions\":2,\"expiry_timestamp\":\"2030-01-01T12:00:00Z\",\"photo_urls\":[]},\"location\":{\"location_name\":\"Kantin UB\",\"coordinates\":{\"latitude\":-7.9526,\"longitude\":112.6144}}}",
+                  "type": "text"
+                },
+                {
+                  "key": "photos",
+                  "src": "postman/sample-food.png",
+                  "type": "file"
+                }
               ]
             }
           },
@@ -75,8 +423,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.collectionVariables.set('pendingFoodId', 'food_test_' + Date.now());",
-                  "pm.collectionVariables.set('foodId', pm.collectionVariables.get('pendingFoodId'));"
+                  "pm.variables.set('uploadFoodId', 'food_pm_' + Date.now());"
                 ]
               }
             },
@@ -86,53 +433,16 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 201', () => pm.response.to.have.status(201));",
-                  "",
-                  "var data = pm.response.json().data;",
-                  "",
-                  "pm.test('returns the saved listing', () => {",
-                  "  pm.expect(data.food_id).to.eql(pm.collectionVariables.get('pendingFoodId'));",
-                  "  pm.expect(data.contributor_id).to.eql('usr_9842a7f1');",
-                  "  pm.expect(data.status).to.eql('available');",
-                  "  pm.expect(data.verification_status).to.eql('approved');",
-                  "});",
-                  "",
-                  "pm.test('verification details are stored', () => {",
-                  "  pm.expect(data.verification_details.verified_by_admin_id).to.eql('adm_001');",
-                  "  pm.expect(data.verification_details.verified_at).to.eql('2026-11-08T09:15:00.000Z');",
-                  "  pm.expect(data.verification_details.rejection_reason).to.be.null;",
-                  "});",
-                  "",
-                  "pm.test('food details are stored', () => {",
-                  "  pm.expect(data.food_details.title).to.eql('Nasi Kotak Ayam Bakar (5 Porsi)');",
-                  "  pm.expect(data.food_details.category).to.eql('Makanan Berat');",
-                  "  pm.expect(data.food_details.dietary_tags).to.eql(['Halal', 'Bebas Kacang']);",
-                  "  pm.expect(data.food_details.quantity_portions).to.eql(5);",
-                  "  pm.expect(data.food_details.expiry_timestamp).to.eql('2026-11-08T20:00:00.000Z');",
-                  "});",
-                  "",
-                  "pm.test('location is stored', () => {",
-                  "  pm.expect(data.location.location_name).to.eql('Depan Pos Satpam Kompleks Asri');",
-                  "  pm.expect(data.location.coordinates.latitude).to.eql(-7.9521);",
-                  "  pm.expect(data.location.coordinates.longitude).to.eql(112.6142);",
-                  "});",
-                  "",
-                  "pm.test('created_at is preserved (document persisted)', () => {",
-                  "  pm.expect(data.created_at).to.eql('2026-11-08T09:00:00.000Z');",
-                  "});",
-                  "",
-                  "pm.test('internal Mongo fields are hidden', () => {",
-                  "  pm.expect(data).to.not.have.property('_id');",
-                  "  pm.expect(data).to.not.have.property('__v');",
-                  "});",
-                  "",
-                  "pm.collectionVariables.set('foodId', data.food_id);"
+                  "const listing = pm.response.json().data;",
+                  "pm.test('photo is stored under the listing food_id', () => pm.expect(listing.food_details.photo_urls[0]).to.include('/uploads/foods/Image_'));",
+                  "pm.collectionVariables.set('uploadId', listing.food_id);"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Create listing (minimal -> auto id + defaults)",
+          "name": "Create - unauthenticated",
           "request": {
             "method": "POST",
             "header": [
@@ -141,24 +451,15 @@
                 "value": "application/json"
               }
             ],
+            "url": "{{baseUrl}}/api/foods",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"contributor_id\": \"usr_test\",\n  \"food_details\": {\n    \"title\": \"Roti Sisa Bakery\",\n    \"category\": \"Snack\",\n    \"quantity_portions\": 2,\n    \"expiry_timestamp\": \"2026-12-01T10:00:00Z\"\n  },\n  \"location\": {\n    \"location_name\": \"Lobby Gedung A\",\n    \"coordinates\": {\n      \"latitude\": -7.9,\n      \"longitude\": 112.6\n    }\n  }\n}",
+              "raw": "{\n  \"food_details\": {\n    \"title\": \"Tanpa Token\",\n    \"description\": \"Dibuat oleh koleksi Postman, aman dihapus.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\n      \"Halal\"\n    ],\n    \"quantity_portions\": 3,\n    \"quantity_unit\": \"porsi\",\n    \"expiry_timestamp\": \"2030-01-01T12:00:00Z\",\n    \"photo_urls\": []\n  },\n  \"location\": {\n    \"location_name\": \"Kantin UB\",\n    \"address_text\": \"Jl. Veteran, Lowokwaru, Malang\",\n    \"coordinates\": {\n      \"latitude\": -7.9526,\n      \"longitude\": 112.6144\n    },\n    \"pickup_notes\": \"Ambil di kantin lantai 1.\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
             }
           },
           "event": [
@@ -167,197 +468,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
-                  "",
-                  "var data = pm.response.json().data;",
-                  "",
-                  "pm.test('food_id is auto-generated', () => pm.expect(data.food_id).to.match(/^food_[0-9a-f]{8}$/));",
-                  "",
-                  "pm.test('defaults are applied', () => {",
-                  "  pm.expect(data.status).to.eql('available');",
-                  "  pm.expect(data.verification_status).to.eql('pending');",
-                  "  pm.expect(data.verification_details.verified_at).to.be.null;",
-                  "  pm.expect(data.food_details.dietary_tags).to.eql([]);",
-                  "  pm.expect(data.food_details.photo_urls).to.eql([]);",
-                  "});",
-                  "",
-                  "pm.test('map url is derived from coordinates', () => {",
-                  "  pm.expect(data.location.external_map_url).to.eql('https://maps.google.com/?q=-7.9,112.6');",
-                  "});",
-                  "",
-                  "pm.collectionVariables.set('autoFoodId', data.food_id);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create duplicate food_id (409)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"food_id\": \"{{foodId}}\",\n  \"contributor_id\": \"usr_other\",\n  \"food_details\": {\n    \"title\": \"Duplikat\",\n    \"category\": \"Snack\",\n    \"quantity_portions\": 1,\n    \"expiry_timestamp\": \"2026-12-01T10:00:00Z\"\n  },\n  \"location\": {\n    \"location_name\": \"Lobby\",\n    \"coordinates\": {\n      \"latitude\": -7.9,\n      \"longitude\": 112.6\n    }\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
-                  "pm.test('duplicate message', () => pm.expect(pm.response.json().error.message).to.eql('food_id is already registered'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create with quantity_portions = 0 (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"contributor_id\": \"usr_test\",\n  \"food_details\": {\n    \"title\": \"Porsi tidak valid\",\n    \"category\": \"Snack\",\n    \"quantity_portions\": 0,\n    \"expiry_timestamp\": \"2026-12-01T10:00:00Z\"\n  },\n  \"location\": {\n    \"location_name\": \"Lobby\",\n    \"coordinates\": {\n      \"latitude\": -7.9,\n      \"longitude\": 112.6\n    }\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
-                  "pm.test('validation message mentions quantity_portions', () => pm.expect(pm.response.json().error.message).to.include('quantity_portions'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create without food_details.title (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"contributor_id\": \"usr_test\",\n  \"food_details\": {\n    \"category\": \"Snack\",\n    \"quantity_portions\": 2,\n    \"expiry_timestamp\": \"2026-12-01T10:00:00Z\"\n  },\n  \"location\": {\n    \"location_name\": \"Lobby\",\n    \"coordinates\": {\n      \"latitude\": -7.9,\n      \"longitude\": 112.6\n    }\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
-                  "pm.test('validation message mentions title', () => pm.expect(pm.response.json().error.message).to.include('food_details.title'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Create rejected without rejection_reason (400)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"contributor_id\": \"usr_test\",\n  \"verification_status\": \"rejected\",\n  \"food_details\": {\n    \"title\": \"Ditolak tanpa alasan\",\n    \"category\": \"Snack\",\n    \"quantity_portions\": 2,\n    \"expiry_timestamp\": \"2026-12-01T10:00:00Z\"\n  },\n  \"location\": {\n    \"location_name\": \"Lobby\",\n    \"coordinates\": {\n      \"latitude\": -7.9,\n      \"longitude\": 112.6\n    }\n  }\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
-                  "pm.test('validation message mentions rejection_reason', () => pm.expect(pm.response.json().error.message).to.include('rejection_reason'));"
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
                 ]
               }
             }
@@ -366,394 +477,23 @@
       ]
     },
     {
-      "name": "1b. Photo upload (multipart)",
-      "description": "Uploads a real image with a new listing and checks that the server stores it as uploads/foods/Image_<food_id>.png. The sample image is in postman/sample-food.png; if Postman shows the file as missing, click the photos row in the Body tab and pick it manually. Run the requests in order: the cleanup request deletes the test listing, but the image file stays on disk (documented behavior).",
+      "name": "3. Owner actions",
       "item": [
         {
-          "name": "Upload photo -> Image_<food_id>",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "data",
-                  "value": "{\n  \"food_id\": \"{{uploadFoodId}}\",\n  \"contributor_id\": \"usr_9842a7f1\",\n  \"verification_status\": \"pending\",\n  \"verification_details\": {},\n  \"food_details\": {\n    \"title\": \"Nasi Box Upload Postman\",\n    \"description\": \"Contoh upload foto lewat Postman.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\"Halal\"],\n    \"quantity_portions\": 4,\n    \"expiry_timestamp\": \"2026-12-31T12:00:00Z\",\n    \"photo_urls\": []\n  },\n  \"location\": {\n    \"location_name\": \"Kantin UB\",\n    \"address_text\": \"Jl. Veteran, Lowokwaru, Malang\",\n    \"coordinates\": {\n      \"latitude\": -7.9526,\n      \"longitude\": 112.6144\n    },\n    \"pickup_notes\": \"Ambil di kantin lantai 1.\"\n  },\n  \"status\": \"available\"\n}",
-                  "type": "text"
-                },
-                {
-                  "key": "photos",
-                  "type": "file",
-                  "src": "postman/sample-food.png",
-                  "description": "Sample image bundled with this collection (PNG, 640x400). Select it manually if Postman cannot resolve the relative path."
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.collectionVariables.set('uploadFoodId', 'food_pm_upload_' + Date.now());"
-                ]
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
-                  "",
-                  "var data = pm.response.json().data;",
-                  "var foodId = pm.collectionVariables.get('uploadFoodId');",
-                  "",
-                  "pm.test('created with the requested food_id', () => {",
-                  "  pm.expect(data.food_id).to.eql(foodId);",
-                  "});",
-                  "",
-                  "pm.test('photo is saved as Image_<food_id>.png', () => {",
-                  "  pm.expect(data.food_details.photo_urls).to.have.lengthOf(1);",
-                  "  pm.expect(data.food_details.photo_urls[0]).to.eql('/uploads/foods/Image_' + foodId + '.png');",
-                  "});",
-                  "",
-                  "pm.collectionVariables.set('uploadedFoodId', data.food_id);",
-                  "pm.collectionVariables.set('uploadedPhotoUrl', data.food_details.photo_urls[0]);"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get uploaded photo (200 image/*)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}{{uploadedPhotoUrl}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "{{uploadedPhotoUrl}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "",
-                  "pm.test('served as an image', () => {",
-                  "  pm.expect(pm.response.headers.get('Content-Type')).to.match(/^image\\//);",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Duplicate upload with same food_id (409)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "data",
-                  "value": "{\n  \"food_id\": \"{{uploadedFoodId}}\",\n  \"contributor_id\": \"usr_9842a7f1\",\n  \"food_details\": {\n    \"title\": \"Duplikat upload\",\n    \"category\": \"Makanan Berat\",\n    \"quantity_portions\": 2,\n    \"expiry_timestamp\": \"2026-12-31T12:00:00Z\",\n    \"photo_urls\": []\n  },\n  \"location\": {\n    \"location_name\": \"Kantin UB\",\n    \"coordinates\": {\n      \"latitude\": -7.9526,\n      \"longitude\": 112.6144\n    }\n  }\n}",
-                  "type": "text"
-                },
-                {
-                  "key": "photos",
-                  "type": "file",
-                  "src": "postman/sample-food.png",
-                  "description": "Temporary upload; the server deletes it when creation fails."
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
-                  "pm.test('duplicate message', () => pm.expect(pm.response.json().error.message).to.eql('food_id is already registered'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Upload without data field (400)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "body": {
-              "mode": "formdata",
-              "formdata": [
-                {
-                  "key": "photos",
-                  "type": "file",
-                  "src": "postman/sample-food.png",
-                  "description": "File only, no `data` field."
-                }
-              ]
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
-                  "pm.test('explains the missing data field', () => pm.expect(pm.response.json().error.message).to.include('data'));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Delete uploaded listing (204)",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{uploadedFoodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{uploadedFoodId}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Photo stays on disk after delete (200)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}{{uploadedPhotoUrl}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "{{uploadedPhotoUrl}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 200 (current behavior: file is not removed)', () => pm.response.to.have.status(200));"
-                ]
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "2. Read",
-      "description": "Read a single listing and list with filters.",
-      "item": [
-        {
-          "name": "Get listing by food_id",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{foodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{foodId}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "",
-                  "var data = pm.response.json().data;",
-                  "",
-                  "pm.test('returns the created listing', () => {",
-                  "  pm.expect(data.food_id).to.eql(pm.collectionVariables.get('foodId'));",
-                  "  pm.expect(data.food_details.title).to.eql('Nasi Kotak Ayam Bakar (5 Porsi)');",
-                  "  pm.expect(data.created_at).to.eql('2026-11-08T09:00:00.000Z');",
-                  "});",
-                  "",
-                  "pm.test('document is persisted in MongoDB', () => {",
-                  "  pm.expect(data.verification_details.verified_by_admin_id).to.eql('adm_001');",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "List with filters (status + contributor_id)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods?status=available&contributor_id=usr_9842a7f1",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ],
-              "query": [
-                {
-                  "key": "status",
-                  "value": "available"
-                },
-                {
-                  "key": "contributor_id",
-                  "value": "usr_9842a7f1"
-                }
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "",
-                  "var body = pm.response.json();",
-                  "",
-                  "pm.test('filters by status and contributor', () => {",
-                  "  pm.expect(body.data).to.be.an('array');",
-                  "  body.data.forEach((item) => {",
-                  "    pm.expect(item.status).to.eql('available');",
-                  "    pm.expect(item.contributor_id).to.eql('usr_9842a7f1');",
-                  "  });",
-                  "});",
-                  "",
-                  "pm.test('contains the created listing', () => {",
-                  "  pm.expect(body.data.map((item) => item.food_id)).to.include(pm.collectionVariables.get('foodId'));",
-                  "});"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Get unknown id (404)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/food_does_not_exist",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "food_does_not_exist"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
-                  "pm.test('not found message', () => pm.expect(pm.response.json().error.message).to.eql('Food listing not found'));"
-                ]
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "3. Update",
-      "description": "PATCH status and verification, plus validation.",
-      "item": [
-        {
-          "name": "Update status to reserved",
+          "name": "Status - available to reserved",
           "request": {
             "method": "PATCH",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
               }
             ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/status",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"reserved\"\n}",
@@ -762,17 +502,6 @@
                   "language": "json"
                 }
               }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{foodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{foodId}}"
-              ]
             }
           },
           "event": [
@@ -782,49 +511,35 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "",
-                  "var data = pm.response.json().data;",
-                  "",
-                  "pm.test('status is updated', () => pm.expect(data.status).to.eql('reserved'));",
-                  "",
-                  "pm.test('other data is unchanged', () => {",
-                  "  pm.expect(data.food_details.title).to.eql('Nasi Kotak Ayam Bakar (5 Porsi)');",
-                  "  pm.expect(data.food_details.quantity_portions).to.eql(5);",
-                  "});"
+                  "pm.test('moved to reserved', () => pm.expect(pm.response.json().data.status).to.eql('reserved'));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Update with invalid status (400)",
+          "name": "Status - reserved to picked_up",
           "request": {
             "method": "PATCH",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
               }
             ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/status",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"sold\"\n}",
+              "raw": "{\n  \"status\": \"picked_up\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{foodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{foodId}}"
-              ]
             }
           },
           "event": [
@@ -833,42 +548,73 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
-                  "pm.test('enum validation message', () => pm.expect(pm.response.json().error.message).to.include('status must be'));"
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Update verification_details (merge)",
+          "name": "Status - illegal transition",
           "request": {
             "method": "PATCH",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
               }
             ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/status",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"verification_details\": {\n    \"rejection_reason\": \"Foto buram\"\n  }\n}",
+              "raw": "{\n  \"status\": \"available\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{foodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{foodId}}"
-              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('picked_up is terminal', () => pm.response.to.have.status(400));",
+                  "pm.test('explains the transition', () => pm.expect(pm.response.json().error.message).to.include('picked_up'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Content - update listing",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"food_details\": {\n    \"title\": \"Judul Setelah Diubah\",\n    \"description\": \"Dibuat oleh koleksi Postman, aman dihapus.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\n      \"Halal\"\n    ],\n    \"quantity_portions\": 3,\n    \"quantity_unit\": \"porsi\",\n    \"expiry_timestamp\": \"2030-01-01T12:00:00Z\",\n    \"photo_urls\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
@@ -878,49 +624,36 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "",
-                  "var details = pm.response.json().data.verification_details;",
-                  "",
-                  "pm.test('keeps existing verification fields', () => {",
-                  "  pm.expect(details.verified_by_admin_id).to.eql('adm_001');",
-                  "  pm.expect(details.verified_at).to.eql('2026-11-08T09:15:00.000Z');",
-                  "});",
-                  "",
-                  "pm.test('adds rejection_reason', () => pm.expect(details.rejection_reason).to.eql('Foto buram'));"
+                  "pm.test('title changed', () => pm.expect(pm.response.json().data.food_details.title).to.eql('Judul Setelah Diubah'));",
+                  "pm.test('status is untouched by a content patch', () => pm.expect(pm.response.json().data.status).to.eql('picked_up'));"
                 ]
               }
             }
           ]
         },
         {
-          "name": "Update unknown id (404)",
+          "name": "Content - foreign listing is forbidden",
           "request": {
             "method": "PATCH",
             "header": [
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
               }
             ],
+            "url": "{{baseUrl}}/api/foods/food_demo02",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"status\": \"reserved\"\n}",
+              "raw": "{\n  \"food_details\": {\n    \"title\": \"Nasi Kotak Uji Postman\",\n    \"description\": \"Dibuat oleh koleksi Postman, aman dihapus.\",\n    \"category\": \"Makanan Berat\",\n    \"dietary_tags\": [\n      \"Halal\"\n    ],\n    \"quantity_portions\": 3,\n    \"quantity_unit\": \"porsi\",\n    \"expiry_timestamp\": \"2030-01-01T12:00:00Z\",\n    \"photo_urls\": []\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/food_does_not_exist",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "food_does_not_exist"
-              ]
             }
           },
           "event": [
@@ -929,7 +662,36 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                  "pm.test('status is 403', () => pm.response.to.have.status(403));",
+                  "pm.test('explains ownership', () => pm.expect(pm.response.json().error.message).to.include('own listings'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My listings - summary and content",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/me/listings?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('summary counts every status', () => pm.expect(body.summary).to.have.all.keys('total', 'pending', 'approved', 'rejected'));",
+                  "pm.test('contains the listing just created', () => pm.expect(body.data.some((x) => x.food_id === pm.collectionVariables.get('createdId'))).to.be.true);",
+                  "pm.test('only my listings', () => body.data.forEach((x) => pm.expect(x.contributor_id).to.eql(pm.collectionVariables.get('myUserId'))));"
                 ]
               }
             }
@@ -938,145 +700,68 @@
       ]
     },
     {
-      "name": "4. Delete & cleanup",
-      "description": "Removes both test documents so the collection can be re-run.",
+      "name": "4. Moderation",
       "item": [
         {
-          "name": "Delete auto-generated listing",
+          "name": "Verify - contributor is forbidden",
           "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{autoFoodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{autoFoodId}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
-                ]
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
               }
-            }
-          ]
-        },
-        {
-          "name": "Deleted auto listing returns 404",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{autoFoodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{autoFoodId}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Delete main listing",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{foodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{foodId}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "Deleted main listing returns 404",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods/{{foodId}}",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods",
-                "{{foodId}}"
-              ]
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "List no longer contains the deleted listing",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/foods?contributor_id=usr_9842a7f1",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "foods"
-              ],
-              "query": [
-                {
-                  "key": "contributor_id",
-                  "value": "usr_9842a7f1"
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
                 }
-              ]
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify - admin approves",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
@@ -1086,10 +771,239 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('deleted food_id is gone', () => {",
-                  "  var ids = pm.response.json().data.map((item) => item.food_id);",
-                  "  pm.expect(ids).to.not.include(pm.collectionVariables.get('foodId'));",
-                  "});"
+                  "const listing = pm.response.json().data;",
+                  "pm.test('now approved', () => pm.expect(listing.verification_status).to.eql('approved'));",
+                  "pm.test('stamps the admin and the time', () => { pm.expect(listing.verification_details.verified_by_admin_id).to.be.a('string'); pm.expect(listing.verification_details.verified_at).to.match(/Z$/); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify - rejection needs a reason",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify - admin rejects with a reason",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\",\n  \"reason\": \"  Foto tidak jelas  \"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const listing = pm.response.json().data;",
+                  "pm.test('now rejected', () => pm.expect(listing.verification_status).to.eql('rejected'));",
+                  "pm.test('stores a trimmed reason', () => pm.expect(listing.verification_details.rejection_reason).to.eql('Foto tidak jelas'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify - rejected listing leaves Explore",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "pm.test('rejected listing is hidden from the feed', () => pm.expect(body.data.some((x) => x.food_id === pm.collectionVariables.get('createdId'))).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify - invalid decision",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"maybe\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Cleanup",
+      "item": [
+        {
+          "name": "Delete - owner removes the listing",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete - spoofed listing",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{spoofId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete - uploaded listing",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{uploadId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete - already gone",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
                 ]
               }
             }

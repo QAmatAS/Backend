@@ -2,12 +2,7 @@ const mongoose = require('mongoose');
 
 const User = require('../models/User');
 const { verifyToken } = require('../config/jwt');
-
-function httpError(status, message) {
-  const error = new Error(message);
-  error.status = status;
-  return error;
-}
+const { httpError } = require('../utils/validation');
 
 /**
  * Reads `Authorization: Bearer <token>` and returns the raw token, or null.
