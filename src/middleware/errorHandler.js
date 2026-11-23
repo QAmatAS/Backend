@@ -35,9 +35,9 @@ function errorHandler(err, req, res, next) {
   } else if (err.name === 'MulterError') {
     status = 400;
     const messages = {
-      LIMIT_FILE_SIZE: 'each photo must be at most 5 MB',
-      LIMIT_FILE_COUNT: 'at most 5 photos are allowed',
-      LIMIT_UNEXPECTED_FILE: 'unexpected file field; use `photos` (max 5 files)',
+      LIMIT_FILE_SIZE: 'each file must be at most 5 MB',
+      LIMIT_FILE_COUNT: 'too many files in this request',
+      LIMIT_UNEXPECTED_FILE: `unexpected file field: ${err.field || 'unknown'}`,
     };
     message = messages[err.code] || err.message;
   } else if (err.code === 11000) {

@@ -16,7 +16,7 @@ const {
 const {
   uploadFoodPhotos,
   renameUploadedPhotos,
-  sanitizeFoodId,
+  sanitizeId,
   uploadDir,
   UPLOAD_URL_PREFIX,
 } = require('../middleware/upload');
@@ -27,10 +27,11 @@ const router = express.Router();
 // `cancelled` are terminal; anything else is rejected with 400.
 const STATUS_TRANSITIONS = {
   available: ['reserved', 'cancelled', 'expired'],
-  reserved: ['available', 'picked_up', 'cancelled'],
+  reserved: ['available', 'picked_up', 'cancelled', 'expired'],
   picked_up: [],
   cancelled: [],
-  expired: ['available'],
+  // Expired listings are archived on the next read, so they are terminal.
+  expired: [],
 };
 
 function generateFoodId() {
@@ -127,7 +128,7 @@ async function removeUploadedFiles(files) {
  * photo by referencing its URL in photo_urls.
  */
 async function removeListingPhotos(listing) {
-  const base = `Image_${sanitizeFoodId(listing.food_id)}`;
+  const base = `Image_${sanitizeId(listing.food_id)}`;
   const photoUrls = listing.food_details?.photo_urls || [];
 
   for (const url of photoUrls) {
@@ -171,6 +172,16 @@ function buildListingPayload(body, contributorId) {
     throw httpError(400, 'location.coordinates.latitude and longitude are required numbers');
   }
 
+  // Refuse to create food that is already past its deadline: it would be
+  // archived on the very next read, so the create response would be a lie.
+  const expiry = parseDate(
+    details.expiry_timestamp,
+    'food_details.expiry_timestamp'
+  );
+  if (expiry.getTime() <= Date.now()) {
+    throw httpError(400, 'food_details.expiry_timestamp must be in the future');
+  }
+
   // Backdating is allowed, but a future date would keep the listing at the top
   // of the feed (and permanently "new" for the notification cursor).
   const createdAt = isPresent(created_at) ? parseDate(created_at, 'created_at') : new Date();
@@ -198,7 +209,7 @@ function buildListingPayload(body, contributorId) {
       quantity_unit: isPresent(details.quantity_unit)
         ? String(details.quantity_unit).trim()
         : 'porsi',
-      expiry_timestamp: parseDate(details.expiry_timestamp, 'food_details.expiry_timestamp'),
+      expiry_timestamp: expiry,
       photo_urls: Array.isArray(details.photo_urls) ? details.photo_urls : [],
     },
 
@@ -220,14 +231,34 @@ function buildListingPayload(body, contributorId) {
 }
 
 /**
- * Finds a listing by its business id (`food_...`) or by the Mongo ObjectId.
+ * Finds an active listing (still in `food_items`) by business id or ObjectId.
+ * Mutations use this: archived listings are read-only history.
  */
-async function findListing(identifier) {
+async function findActiveListing(identifier) {
   const byFoodId = await FoodItemListing.findOne({ food_id: identifier });
   if (byFoodId) return byFoodId;
 
   if (mongoose.isValidObjectId(identifier)) {
     return FoodItemListing.findById(identifier);
+  }
+
+  return null;
+}
+
+/**
+ * Read-only lookup that also resolves archived listings, so a link to food that
+ * expired while the user had it open still renders (as "expired") instead of
+ * returning 404.
+ */
+async function findListingForRead(identifier) {
+  const active = await findActiveListing(identifier);
+  if (active) return active;
+
+  const archivedByFoodId = await FoodItemListing.Expired.findOne({ food_id: identifier });
+  if (archivedByFoodId) return archivedByFoodId;
+
+  if (mongoose.isValidObjectId(identifier)) {
+    return FoodItemListing.Expired.findById(identifier);
   }
 
   return null;
@@ -245,16 +276,21 @@ function assertOwner(req, listing) {
 
 // GET /api/foods
 // Explore feed: text search, category filter, availability/verification
-// filters, geo radius and paging. Rejected and cancelled listings are hidden
-// unless explicitly requested by name.
+// filters, geo radius and paging. Only food that is still available is returned
+// by default; anything past its consumption deadline is first flipped to
+// "expired" in the database.
 router.get('/', async (req, res) => {
+  await FoodItemListing.expireStale();
+
   const { status, verification_status, contributor_id, category, q, lat, lng, radiusKm } =
     req.query;
 
   const filter = {};
 
+  // An explicit status is honoured (owner/admin tooling); by default the public
+  // feed only shows food that can still be picked up.
   filter.status =
-    parseEnumParam(status, FoodItemListing.STATUSES, 'status') || { $ne: 'cancelled' };
+    parseEnumParam(status, FoodItemListing.STATUSES, 'status') || 'available';
 
   filter.verification_status =
     parseEnumParam(
@@ -352,6 +388,10 @@ router.get('/new', authenticate, async (req, res) => {
   // (which uses that value as its cursor) would skip it forever.
   const now = new Date();
 
+  // The background poll is often the only traffic this endpoint gets, so expire
+  // here as well to keep the stored statuses honest.
+  await FoodItemListing.expireStale(now);
+
   const geo = parseGeoQuery(req.query.lat, req.query.lng, req.query.radiusKm);
 
   if (!geo) {
@@ -409,7 +449,11 @@ router.get('/new', authenticate, async (req, res) => {
 
 // GET /api/foods/:id  (accepts food_id or Mongo ObjectId)
 router.get('/:id', async (req, res, next) => {
-  const listing = await findListing(req.params.id);
+  // Keep a stale link honest: an expired listing still resolves, but reads as
+  // "expired" instead of pretending it is still available.
+  await FoodItemListing.expireStale();
+
+  const listing = await findListingForRead(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));
@@ -456,7 +500,11 @@ router.post('/', authenticate, uploadFoodPhotos.array('photos', 5), async (req, 
 
 // PATCH /api/foods/:id/status  (owner only: availability mark)
 router.patch('/:id/status', authenticate, async (req, res, next) => {
-  const listing = await findListing(req.params.id);
+  // Archive anything that lapsed since the last read, so this request cannot
+  // act on (or return) a listing that is already dead.
+  await FoodItemListing.expireStale();
+
+  const listing = await findActiveListing(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));
@@ -491,7 +539,10 @@ router.patch('/:id/status', authenticate, async (req, res, next) => {
 
 // PATCH /api/foods/:id/verify  (admin only: approval workflow)
 router.patch('/:id/verify', authenticate, requireRole('admin'), async (req, res, next) => {
-  const listing = await findListing(req.params.id);
+  // Expired food must not be verifiable.
+  await FoodItemListing.expireStale();
+
+  const listing = await findActiveListing(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));
@@ -524,7 +575,9 @@ router.patch('/:id/verify', authenticate, requireRole('admin'), async (req, res,
 // the complete object. status/verification have their own endpoints and are
 // ignored here.
 router.patch('/:id', authenticate, async (req, res, next) => {
-  const listing = await findListing(req.params.id);
+  await FoodItemListing.expireStale();
+
+  const listing = await findActiveListing(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));
@@ -533,6 +586,20 @@ router.patch('/:id', authenticate, async (req, res, next) => {
   assertOwner(req, listing);
 
   const { food_details, location } = req.body || {};
+
+  // An edit must not move a listing's deadline into the past either.
+  if (food_details !== undefined && isPresent(food_details.expiry_timestamp)) {
+    const expiry = parseDate(
+      food_details.expiry_timestamp,
+      'food_details.expiry_timestamp'
+    );
+
+    if (expiry.getTime() <= Date.now()) {
+      return next(
+        httpError(400, 'food_details.expiry_timestamp must be in the future')
+      );
+    }
+  }
 
   if (food_details !== undefined) listing.food_details = food_details;
   if (location !== undefined) listing.location = location;
@@ -545,7 +612,9 @@ router.patch('/:id', authenticate, async (req, res, next) => {
 
 // DELETE /api/foods/:id  (owner only)
 router.delete('/:id', authenticate, async (req, res, next) => {
-  const listing = await findListing(req.params.id);
+  await FoodItemListing.expireStale();
+
+  const listing = await findActiveListing(req.params.id);
 
   if (!listing) {
     return next(httpError(404, 'Food listing not found'));

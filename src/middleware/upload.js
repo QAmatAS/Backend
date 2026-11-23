@@ -5,13 +5,21 @@ const path = require('path');
 const multer = require('multer');
 
 // Files are stored on this server, outside of the database:
-// <project>/uploads/foods/<generated-name>.<ext>
-const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'foods');
-fs.mkdirSync(uploadDir, { recursive: true });
+//   <project>/uploads/foods/<generated-name>.<ext>
+//   <project>/uploads/avatars/avatar_<user_id>_<random>.<ext>
+const UPLOADS_ROOT = path.join(__dirname, '..', '..', 'uploads');
+const uploadDir = path.join(UPLOADS_ROOT, 'foods');
+const avatarUploadDir = path.join(UPLOADS_ROOT, 'avatars');
 
-// Public URL prefix used in photo_urls. Do not include the host, so the same
-// value works from localhost, a LAN IP or a localtunnel URL.
+fs.mkdirSync(uploadDir, { recursive: true });
+fs.mkdirSync(avatarUploadDir, { recursive: true });
+
+// Public URL prefixes used in photo_urls / avatar_url. Do not include the host,
+// so the same value works from localhost, a LAN IP or a localtunnel URL.
 const UPLOAD_URL_PREFIX = '/uploads/foods';
+const AVATAR_URL_PREFIX = '/uploads/avatars';
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per file
 
 // Only real image types, with the extension decided by us (never by the client).
 const MIME_EXTENSIONS = {
@@ -45,13 +53,34 @@ const uploadFoodPhotos = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5 MB per photo
+    fileSize: MAX_FILE_SIZE,
     files: 5, // max 5 photos per listing
   },
 });
 
-function sanitizeFoodId(foodId) {
-  const cleaned = String(foodId || '')
+// One avatar per upload, named after the owner so the previous file is easy to
+// find and delete. The random suffix busts client-side image caches, which would
+// otherwise keep showing the old photo when the URL stayed the same.
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, avatarUploadDir),
+  filename: (req, file, cb) => {
+    const extension = MIME_EXTENSIONS[file.mimetype];
+    const owner = sanitizeId(req.user ? req.user.user_id : 'user');
+    cb(null, `avatar_${owner}_${crypto.randomBytes(4).toString('hex')}${extension}`);
+  },
+});
+
+const uploadAvatar = multer({
+  storage: avatarStorage,
+  fileFilter,
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+    files: 1,
+  },
+});
+
+function sanitizeId(value) {
+  const cleaned = String(value || '')
     .trim()
     .replace(/[^a-zA-Z0-9_-]/g, '_');
 
@@ -66,7 +95,7 @@ function sanitizeFoodId(foodId) {
 async function renameUploadedPhotos(files, foodId) {
   if (!files || files.length === 0) return files;
 
-  const base = `Image_${sanitizeFoodId(foodId)}`;
+  const base = `Image_${sanitizeId(foodId)}`;
 
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index];
@@ -85,10 +114,57 @@ async function renameUploadedPhotos(files, foodId) {
   return files;
 }
 
+/**
+ * Removes the avatar files belonging to one user. `keepFilename` protects the
+ * file that was just uploaded, so replacing an avatar does not delete itself.
+ */
+async function removeUserAvatars(userId, keepFilename) {
+  const prefix = `avatar_${sanitizeId(userId)}_`;
+
+  let names;
+  try {
+    names = await fsp.readdir(avatarUploadDir);
+  } catch (err) {
+    if (err.code === 'ENOENT') return 0;
+    throw err;
+  }
+
+  let removed = 0;
+
+  for (const name of names) {
+    if (!name.startsWith(prefix)) continue;
+    if (keepFilename && name === keepFilename) continue;
+
+    await fsp.rm(path.join(avatarUploadDir, name), { force: true });
+    removed += 1;
+  }
+
+  return removed;
+}
+
+/**
+ * Removes a single stored avatar. External URLs and anything outside the avatars
+ * folder are ignored, so a crafted value cannot delete other files.
+ */
+async function removeAvatarFile(url) {
+  if (typeof url !== 'string' || !url.startsWith(`${AVATAR_URL_PREFIX}/`)) return false;
+
+  const name = path.basename(url);
+  if (!name.startsWith('avatar_')) return false;
+
+  await fsp.rm(path.join(avatarUploadDir, name), { force: true });
+  return true;
+}
+
 module.exports = {
   uploadFoodPhotos,
+  uploadAvatar,
   renameUploadedPhotos,
-  sanitizeFoodId,
+  sanitizeId,
+  removeUserAvatars,
+  removeAvatarFile,
   uploadDir,
+  avatarUploadDir,
   UPLOAD_URL_PREFIX,
+  AVATAR_URL_PREFIX,
 };

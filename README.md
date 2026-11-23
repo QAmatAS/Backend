@@ -114,6 +114,9 @@ accounts the detail screen would have no contact number to show.
 | POST | `/api/register` | — | Create an account (`name`, `email`, `password` ≥ 6) |
 | POST | `/api/login` | — | Returns a JWT |
 | GET | `/api/me` | Bearer | Current user, role, contact info, derived stats |
+| PATCH | `/api/me` | Bearer | Update the signed-in user's own profile |
+| POST | `/api/me/avatar` | Bearer | Upload a profile photo (multipart) |
+| DELETE | `/api/me/avatar` | Bearer | Remove the profile photo |
 | GET | `/api/me/listings` | Bearer | The signed-in user's own listings |
 | GET | `/api/foods` | optional | Explore: search, filters, radius, paging |
 | GET | `/api/foods/new` | Bearer | Notification poll: what appeared nearby since a cursor |
@@ -123,6 +126,48 @@ accounts the detail screen would have no contact number to show.
 | PATCH | `/api/foods/:id/status` | Bearer, owner | Change the availability mark |
 | PATCH | `/api/foods/:id/verify` | Bearer, **admin** | Approve or reject a listing |
 | DELETE | `/api/foods/:id` | Bearer, owner | Delete a listing and its photos |
+
+### Updating your profile: `PATCH /api/me`
+
+Partial update — only the fields you send are touched:
+
+```http
+PATCH /api/me
+{ "name": "Maya Lin",
+  "personal_info": { "display_name": "Maya L.", "bio": "…", "phone": "+6281234567890" } }
+```
+
+| Field | Notes |
+| ----- | ----- |
+| `name` | 1–100 characters, trimmed |
+| `personal_info.display_name` | max 100, falls back to `name` when empty |
+| `personal_info.avatar_url` | max 500 |
+| `personal_info.bio` | max 500 |
+| `personal_info.phone` | max 32 — this is the WhatsApp number |
+
+- `personal_info` is **merged**, so editing the bio cannot wipe the phone number.
+- `null` clears a field.
+- `email`, `role`, `user_id`, `passwordHash` and `stats` are **not writable** here;
+  they are ignored if sent, so the endpoint cannot be used for privilege escalation.
+- Returns the same body as `GET /api/me`, including derived `stats`.
+- `400` for an empty body, an empty `name`, or a value that is too long.
+
+#### Profile photo
+
+```http
+POST   /api/me/avatar      multipart/form-data, field `avatar`
+DELETE /api/me/avatar
+```
+
+- One image per request: JPEG/PNG/WEBP/GIF, max 5 MB.
+- Stored in `uploads/avatars/` as `avatar_<user_id>_<random>.<ext>` and served
+  from `/uploads/avatars/...`. `personal_info.avatar_url` is set to that
+  **relative** path, so the client prefixes its base URL like any other photo.
+- The random suffix busts client image caches; the previous upload for that user
+  is deleted when it is replaced, and again by `DELETE /api/me/avatar`.
+- `PATCH /api/me` still accepts a plain `avatar_url` for externally hosted
+  images; replacing an uploaded avatar that way removes the old local file.
+- Both endpoints return the same body as `GET /api/me`.
 
 ### Listing shape
 
@@ -177,13 +222,33 @@ The list endpoints omit it to keep the feed light.
 
 ```
 available → reserved | cancelled | expired
-reserved  → available | picked_up | cancelled
+reserved  → available | picked_up | cancelled | expired
 picked_up → terminal
 cancelled → terminal
-expired   → available
+expired   → terminal (archived on the next read)
 ```
 
 Anything else returns `400`. Sending the current status again is a `200` no-op.
+
+**Expiry is enforced automatically.** Any listing still `available` or `reserved`
+whose `expiry_timestamp` has passed is **moved out of `food_items` into the
+`Expired` collection** the next time a read endpoint runs, so the active
+collection only ever holds food that is still actionable. Listings already
+`picked_up` or `cancelled` keep their status — those are outcomes, not timeouts.
+
+Consequences of the archive:
+
+- The Explore feed never returns them (`food_items` no longer contains them).
+- `GET /api/foods/:id` still resolves an archived listing, returning `200` with
+  `status: "expired"`, so a link that went stale while open shows "expired"
+  rather than a 404.
+- `GET /api/me/listings` merges both collections, so the owner keeps their
+  history; `summary.expired` counts the archived ones.
+- `stats.total_shared_submitted` / `total_shared_approved` are lifetime totals
+  and include the archive, so they do not drop when a listing expires.
+- Archived listings are **read-only**: `PATCH` and `DELETE` sweep first, then look
+  only at `food_items`, so anything already expired returns `404` on that same
+  request instead of being modified.
 
 ### Explore: `GET /api/foods`
 
@@ -191,7 +256,7 @@ Anything else returns `400`. Sending the current status again is a `200` no-op.
 | ----- | ------- | ----- |
 | `q` | — | Case-insensitive search over title and description (regex-escaped) |
 | `category` | — | Exact match, case-insensitive |
-| `status` | all except `cancelled` | Enum value, validated |
+| `status` | `available` | Enum value, validated. The public feed only shows food that can still be picked up; pass a status explicitly to query the rest |
 | `verification_status` | all except `rejected` | Enum value, validated |
 | `contributor_id` | — | Filter by owner |
 | `lat`, `lng` | — | Must be sent together |
@@ -237,6 +302,9 @@ curl -X POST http://localhost:3000/api/foods \
 - `contributor_id` is taken from the token; any value in the body is ignored.
 - Every new listing starts `status: "available"` and `verification_status: "pending"`.
   Self-approval is not possible.
+- `food_details.expiry_timestamp` **must be in the future** (`400` otherwise), so
+  a create response can never describe food that is already expired. The same
+  rule applies to content edits.
 - `food_id` is optional (`food_<8hex>` when omitted) and unique.
 - `location.external_map_url` is derived from the coordinates when omitted.
 - Photos: JPEG/PNG/WEBP/GIF, max 5 MB each, max 5 per listing. Stored in

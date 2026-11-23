@@ -16,6 +16,14 @@
     {
       "key": "newEmail",
       "value": ""
+    },
+    {
+      "key": "originalBio",
+      "value": ""
+    },
+    {
+      "key": "avatarUrl",
+      "value": ""
     }
   ],
   "item": [
@@ -279,7 +287,152 @@
               "const user = pm.response.json().data;",
               "pm.test('has identity and role', () => { pm.expect(user.user_id).to.match(/^usr_/); pm.expect(user.role).to.be.oneOf(['contributor', 'admin']); });",
               "pm.test('stats are derived', () => pm.expect(user.stats).to.have.all.keys('total_shared_submitted', 'total_shared_approved', 'rating'));",
-              "pm.collectionVariables.set('myUserId', user.user_id);"
+              "pm.collectionVariables.set('myUserId', user.user_id);",
+              "pm.collectionVariables.set('originalBio', user.personal_info.bio);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Me - update profile",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"personal_info\": {\n    \"bio\": \"Diperbarui oleh Postman\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "const user = pm.response.json().data;",
+              "pm.test('bio is updated', () => pm.expect(user.personal_info.bio).to.eql('Diperbarui oleh Postman'));",
+              "pm.test('name and role are untouched', () => { pm.expect(user.name).to.be.a('string').and.not.empty; pm.expect(user.role).to.be.oneOf(['contributor', 'admin']); });",
+              "pm.test('returns derived stats', () => pm.expect(user.stats).to.have.all.keys('total_shared_submitted', 'total_shared_approved', 'rating'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Me - restore profile",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/me",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"personal_info\": {\n    \"bio\": \"{{originalBio}}\"\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('bio restored', () => pm.expect(pm.response.json().data.personal_info.bio).to.eql(pm.collectionVariables.get('originalBio')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Me - upload avatar",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/me/avatar",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "avatar",
+              "src": "postman/sample-food.png",
+              "type": "file"
+            }
+          ]
+        },
+        "description": "Multipart upload, field `avatar`. If Postman cannot resolve the relative path, pick the file manually."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 201', () => pm.response.to.have.status(201));",
+              "const user = pm.response.json().data;",
+              "pm.test('avatar points into the uploads folder', () => pm.expect(user.personal_info.avatar_url).to.match(/^\\/uploads\\/avatars\\/avatar_/));",
+              "pm.test('profile shape is unchanged', () => pm.expect(user.stats).to.have.all.keys('total_shared_submitted', 'total_shared_approved', 'rating'));",
+              "pm.collectionVariables.set('avatarUrl', user.personal_info.avatar_url);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Me - delete avatar",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/me/avatar",
+        "description": "Removes the stored file so running this collection leaves no leftovers."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status is 200', () => pm.response.to.have.status(200));",
+              "pm.test('avatar cleared', () => pm.expect(pm.response.json().data.personal_info.avatar_url).to.eql(''));"
             ]
           }
         }

@@ -18,7 +18,12 @@ const personalInfoSchema = new mongoose.Schema(
       maxlength: [100, 'display_name must be at most 100 characters'],
       default: '',
     },
-    avatar_url: { type: String, trim: true, default: '' },
+    avatar_url: {
+      type: String,
+      trim: true,
+      maxlength: [500, 'avatar_url must be at most 500 characters'],
+      default: '',
+    },
     bio: {
       type: String,
       trim: true,

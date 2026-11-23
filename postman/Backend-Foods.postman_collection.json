@@ -141,7 +141,9 @@
                   "pm.test('paging meta present', () => pm.expect(body).to.have.all.keys('count', 'total', 'page', 'limit', 'hasMore', 'data'));",
                   "pm.test('rejected listings are hidden', () => pm.expect(body.data.some((x) => x.verification_status === 'rejected')).to.be.false);",
                   "pm.test('pending listings stay visible', () => pm.expect(body.data.some((x) => x.verification_status === 'pending')).to.be.true);",
-                  "pm.test('items carry quantity_unit', () => body.data.forEach((x) => pm.expect(x.food_details.quantity_unit).to.be.a('string')));"
+                  "pm.test('items carry quantity_unit', () => body.data.forEach((x) => pm.expect(x.food_details.quantity_unit).to.be.a('string')));",
+                  "pm.test('only available listings are returned', () => body.data.forEach((x) => pm.expect(x.status).to.eql('available')));",
+                  "pm.test('nothing past its expiry is listed', () => body.data.forEach((x) => pm.expect(new Date(x.food_details.expiry_timestamp).getTime()).to.be.greaterThan(Date.now())));"
                 ]
               }
             }
@@ -689,7 +691,7 @@
                 "exec": [
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "const body = pm.response.json();",
-                  "pm.test('summary counts every status', () => pm.expect(body.summary).to.have.all.keys('total', 'pending', 'approved', 'rejected'));",
+                  "pm.test('summary counts every status', () => pm.expect(body.summary).to.have.all.keys('total', 'pending', 'approved', 'rejected', 'expired'));",
                   "pm.test('contains the listing just created', () => pm.expect(body.data.some((x) => x.food_id === pm.collectionVariables.get('createdId'))).to.be.true);",
                   "pm.test('only my listings', () => body.data.forEach((x) => pm.expect(x.contributor_id).to.eql(pm.collectionVariables.get('myUserId'))));"
                 ]

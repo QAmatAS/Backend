@@ -191,6 +191,68 @@ foodItemListingSchema.index({ 'location.geo': '2dsphere' });
 foodItemListingSchema.statics.STATUSES = STATUSES;
 foodItemListingSchema.statics.VERIFICATION_STATUSES = VERIFICATION_STATUSES;
 
+// Moves listings whose consumption deadline has passed into the "Expired"
+// archive collection, so `food_items` only ever holds food that is still
+// actionable. Called on read, which keeps the database truthful even when no
+// background job is running.
+//
+// The move is idempotent and crash-safe: the source document is removed
+// atomically by whichever sweep claims it, and a duplicate insert (a previous
+// run that died between insert and delete) is tolerated.
+foodItemListingSchema.statics.expireStale = async function expireStale(now = new Date()) {
+  // Anything already marked expired, plus anything whose deadline has passed
+  // while still available or reserved.
+  const staleFilter = {
+    $or: [
+      { status: 'expired' },
+      {
+        status: { $in: ['available', 'reserved'] },
+        'food_details.expiry_timestamp': { $lt: now },
+      },
+    ],
+  };
+
+  // No limit on purpose: a read must finish the sweep before it answers,
+  // otherwise the very response that triggered the sweep could still contain
+  // expired food (and the correction would only land on the next request).
+  const stale = await this.find(staleFilter).select('+location.geo');
+
+  let moved = 0;
+
+  for (const listing of stale) {
+    // Atomic claim: only the request that removes the document archives it, so
+    // concurrent sweeps cannot archive the same listing twice.
+    const claimed = await this.findOneAndDelete({
+      _id: listing._id,
+      $or: staleFilter.$or,
+    });
+
+    if (!claimed) continue;
+
+    const archived = listing.toObject();
+    archived.status = 'expired';
+    archived.updated_at = now;
+
+    try {
+      // Raw insert: an archived record must be preserved exactly as stored, even
+      // if an older document would not pass today's schema validation.
+      await ExpiredListing.collection.insertOne(archived);
+    } catch (err) {
+      // 11000 means a previous attempt already archived it — just drop the
+      // leftover source document.
+      if (err.code !== 11000) {
+        // Put the listing back rather than losing it, then surface the failure.
+        await this.collection.insertOne(listing.toObject());
+        throw err;
+      }
+    }
+
+    moved += 1;
+  }
+
+  return moved;
+};
+
 // Keeps location.geo in step with location.coordinates for every write path
 // (API create/patch, seeds, future imports). Runs before validation so the
 // index never sees a half-written point.
@@ -258,4 +320,12 @@ foodItemListingSchema.methods.toPublic = function toPublic() {
   };
 };
 
-module.exports = mongoose.model('FoodItemListing', foodItemListingSchema);
+const FoodItemListing = mongoose.model('FoodItemListing', foodItemListingSchema);
+
+// Archive for listings that passed their consumption deadline. Same schema, so
+// the stored shape is identical; the explicit collection name keeps the
+// capitalised "Expired" the API consumers expect.
+const ExpiredListing = mongoose.model('ExpiredListing', foodItemListingSchema, 'Expired');
+
+module.exports = FoodItemListing;
+module.exports.Expired = ExpiredListing;
