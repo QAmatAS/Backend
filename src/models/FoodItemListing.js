@@ -1,7 +1,7 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-const STATUSES = ["available", "reserved", "picked_up", "expired", "cancelled"];
-const VERIFICATION_STATUSES = ["pending", "approved", "rejected"];
+const STATUSES = ['available', 'reserved', 'picked_up', 'expired', 'cancelled'];
+const VERIFICATION_STATUSES = ['pending', 'approved', 'rejected'];
 
 // ---------------------------------------------------------------------------
 // Nested schemas (_id: false keeps the JSON identical to the API contract)
@@ -14,8 +14,8 @@ const geoPointSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["Point"],
-      default: "Point",
+      enum: ['Point'],
+      default: 'Point',
       required: true,
     },
     coordinates: {
@@ -23,29 +23,29 @@ const geoPointSchema = new mongoose.Schema(
       required: true,
       validate: {
         validator: (value) => Array.isArray(value) && value.length === 2,
-        message: "geo coordinates must be [longitude, latitude]",
+        message: 'geo coordinates must be [longitude, latitude]',
       },
     },
   },
-  { _id: false },
+  { _id: false }
 );
 
 const coordinatesSchema = new mongoose.Schema(
   {
     latitude: {
       type: Number,
-      required: [true, "latitude is required"],
-      min: [-90, "latitude must be between -90 and 90"],
-      max: [90, "latitude must be between -90 and 90"],
+      required: [true, 'latitude is required'],
+      min: [-90, 'latitude must be between -90 and 90'],
+      max: [90, 'latitude must be between -90 and 90'],
     },
     longitude: {
       type: Number,
-      required: [true, "longitude is required"],
-      min: [-180, "longitude must be between -180 and 180"],
-      max: [180, "longitude must be between -180 and 180"],
+      required: [true, 'longitude is required'],
+      min: [-180, 'longitude must be between -180 and 180'],
+      max: [180, 'longitude must be between -180 and 180'],
     },
   },
-  { _id: false },
+  { _id: false }
 );
 
 const verificationDetailsSchema = new mongoose.Schema(
@@ -54,23 +54,23 @@ const verificationDetailsSchema = new mongoose.Schema(
     verified_at: { type: Date, default: null },
     rejection_reason: { type: String, default: null, trim: true },
   },
-  { _id: false },
+  { _id: false }
 );
 
 const foodDetailsSchema = new mongoose.Schema(
   {
     title: {
       type: String,
-      required: [true, "title is required"],
+      required: [true, 'title is required'],
       trim: true,
-      maxlength: [150, "title must be at most 150 characters"],
+      maxlength: [150, 'title must be at most 150 characters'],
     },
-    description: { type: String, default: "", trim: true, maxlength: 2000 },
+    description: { type: String, default: '', trim: true, maxlength: 2000 },
     category: {
       type: String,
-      required: [true, "category is required"],
+      required: [true, 'category is required'],
       trim: true,
-      maxlength: [100, "category must be at most 100 characters"],
+      maxlength: [100, 'category must be at most 100 characters'],
     },
     dietary_tags: {
       type: [{ type: String, trim: true }],
@@ -78,51 +78,51 @@ const foodDetailsSchema = new mongoose.Schema(
     },
     quantity_portions: {
       type: Number,
-      required: [true, "quantity_portions is required"],
-      min: [1, "quantity_portions must be at least 1"],
+      required: [true, 'quantity_portions is required'],
+      min: [1, 'quantity_portions must be at least 1'],
     },
     // Free string on purpose: contributors use "porsi", "kotak", "bungkus", and
     // a closed enum would just block real cases. Never used for stock maths.
     quantity_unit: {
       type: String,
       trim: true,
-      maxlength: [20, "quantity_unit must be at most 20 characters"],
-      default: "porsi",
+      maxlength: [20, 'quantity_unit must be at most 20 characters'],
+      default: 'porsi',
     },
     expiry_timestamp: {
       type: Date,
-      required: [true, "expiry_timestamp is required"],
+      required: [true, 'expiry_timestamp is required'],
     },
     photo_urls: {
       type: [{ type: String, trim: true }],
       default: [],
     },
   },
-  { _id: false },
+  { _id: false }
 );
 
 const locationSchema = new mongoose.Schema(
   {
     location_name: {
       type: String,
-      required: [true, "location_name is required"],
+      required: [true, 'location_name is required'],
       trim: true,
-      maxlength: [150, "location_name must be at most 150 characters"],
+      maxlength: [150, 'location_name must be at most 150 characters'],
     },
-    address_text: { type: String, default: "", trim: true, maxlength: 500 },
+    address_text: { type: String, default: '', trim: true, maxlength: 500 },
     coordinates: {
       type: coordinatesSchema,
-      required: [true, "coordinates are required"],
+      required: [true, 'coordinates are required'],
     },
     geo: {
       type: geoPointSchema,
       // Internal: excluded from every normal query and from toPublic().
       select: false,
     },
-    pickup_notes: { type: String, default: "", trim: true, maxlength: 1000 },
-    external_map_url: { type: String, default: "", trim: true },
+    pickup_notes: { type: String, default: '', trim: true, maxlength: 1000 },
+    external_map_url: { type: String, default: '', trim: true },
   },
-  { _id: false },
+  { _id: false }
 );
 
 // ---------------------------------------------------------------------------
@@ -134,17 +134,17 @@ const foodItemListingSchema = new mongoose.Schema(
     // Human readable business id, e.g. "food_8821". The Mongo _id is separate.
     food_id: {
       type: String,
-      required: [true, "food_id is required"],
+      required: [true, 'food_id is required'],
       unique: true,
       trim: true,
-      maxlength: [64, "food_id must be at most 64 characters"],
+      maxlength: [64, 'food_id must be at most 64 characters'],
     },
     contributor_id: {
       type: String,
-      required: [true, "contributor_id is required"],
+      required: [true, 'contributor_id is required'],
       trim: true,
       index: true,
-      maxlength: [64, "contributor_id must be at most 64 characters"],
+      maxlength: [64, 'contributor_id must be at most 64 characters'],
     },
     created_at: { type: Date, default: Date.now },
     updated_at: { type: Date, default: Date.now },
@@ -153,9 +153,9 @@ const foodItemListingSchema = new mongoose.Schema(
       type: String,
       enum: {
         values: VERIFICATION_STATUSES,
-        message: `verification_status must be ${VERIFICATION_STATUSES.join(", ")}`,
+        message: `verification_status must be ${VERIFICATION_STATUSES.join(', ')}`,
       },
-      default: "pending",
+      default: 'pending',
       index: true,
     },
     verification_details: {
@@ -165,31 +165,31 @@ const foodItemListingSchema = new mongoose.Schema(
 
     food_details: {
       type: foodDetailsSchema,
-      required: [true, "food_details is required"],
+      required: [true, 'food_details is required'],
     },
     location: {
       type: locationSchema,
-      required: [true, "location is required"],
+      required: [true, 'location is required'],
     },
 
     status: {
       type: String,
       enum: {
         values: STATUSES,
-        message: `status must be ${STATUSES.join(", ")}`,
+        message: `status must be ${STATUSES.join(', ')}`,
       },
-      default: "available",
+      default: 'available',
       index: true,
     },
   },
-  { collection: "food_items" },
+  { collection: 'food_items' }
 );
 
 foodItemListingSchema.index({ status: 1, created_at: -1 });
 // Lets the expiry sweep (run on most reads) find overdue listings without
 // scanning the whole collection.
-foodItemListingSchema.index({ status: 1, "food_details.expiry_timestamp": 1 });
-foodItemListingSchema.index({ "location.geo": "2dsphere" });
+foodItemListingSchema.index({ status: 1, 'food_details.expiry_timestamp': 1 });
+foodItemListingSchema.index({ 'location.geo': '2dsphere' });
 
 foodItemListingSchema.statics.STATUSES = STATUSES;
 foodItemListingSchema.statics.VERIFICATION_STATUSES = VERIFICATION_STATUSES;
@@ -206,9 +206,9 @@ function isDuplicateKeyOn(err, field) {
   }
 
   // Fallback for errors that only describe the index in their message.
-  const message = String(err.message || "");
-  return field === "_id"
-    ? message.includes("index: _id_")
+  const message = String(err.message || '');
+  return field === '_id'
+    ? message.includes('index: _id_')
     : message.includes(`index: ${field}_`);
 }
 
@@ -220,7 +220,7 @@ async function insertArchived(doc) {
   try {
     await ExpiredListing.collection.insertOne(doc);
   } catch (err) {
-    if (!isDuplicateKeyOn(err, "_id")) throw err;
+    if (!isDuplicateKeyOn(err, '_id')) throw err;
   }
 }
 
@@ -228,13 +228,13 @@ async function insertArchived(doc) {
 // collection. Returns true when this call completed the move.
 async function archiveListing(Source, listing, staleFilter, now) {
   const archived = listing.toObject();
-  archived.status = "expired";
+  archived.status = 'expired';
   archived.updated_at = now;
 
   try {
     await insertArchived(archived);
   } catch (err) {
-    if (!isDuplicateKeyOn(err, "food_id")) throw err;
+    if (!isDuplicateKeyOn(err, 'food_id')) throw err;
 
     // A different archived listing already uses this food_id (for example a
     // client reused it). Keep both instead of losing this one: the suffix is
@@ -274,21 +274,19 @@ async function archiveListing(Source, listing, staleFilter, now) {
 // This function never throws. A failure is logged and the listing simply
 // stays where it is until the next sweep, so a read endpoint is never turned
 // into a 500 by the housekeeping that runs in front of it.
-foodItemListingSchema.statics.expireStale = async function expireStale(
-  now = new Date(),
-) {
+foodItemListingSchema.statics.expireStale = async function expireStale(now = new Date()) {
   // The archive model shares this schema, and therefore this static. Sweeping
   // the archive into itself would make no sense.
-  if (this.modelName === "ExpiredListing") return 0;
+  if (this.modelName === 'ExpiredListing') return 0;
 
   // Anything already marked expired, plus anything whose deadline has passed
   // while still available or reserved.
   const staleFilter = {
     $or: [
-      { status: "expired" },
+      { status: 'expired' },
       {
-        status: { $in: ["available", "reserved"] },
-        "food_details.expiry_timestamp": { $lt: now },
+        status: { $in: ['available', 'reserved'] },
+        'food_details.expiry_timestamp': { $lt: now },
       },
     ],
   };
@@ -299,20 +297,17 @@ foodItemListingSchema.statics.expireStale = async function expireStale(
     // No limit on purpose: a read must finish the sweep before it answers,
     // otherwise the very response that triggered the sweep could still contain
     // expired food (and the correction would only land on the next request).
-    const stale = await this.find(staleFilter).select("+location.geo");
+    const stale = await this.find(staleFilter).select('+location.geo');
 
     for (const listing of stale) {
       try {
         if (await archiveListing(this, listing, staleFilter, now)) moved += 1;
       } catch (err) {
-        console.error(
-          `expireStale: could not archive ${listing.food_id}:`,
-          err.message,
-        );
+        console.error(`expireStale: could not archive ${listing.food_id}:`, err.message);
       }
     }
   } catch (err) {
-    console.error("expireStale: sweep failed:", err.message);
+    console.error('expireStale: sweep failed:', err.message);
   }
 
   return moved;
@@ -321,19 +316,19 @@ foodItemListingSchema.statics.expireStale = async function expireStale(
 // Keeps location.geo in step with location.coordinates for every write path
 // (API create/patch, seeds, future imports). Runs before validation so the
 // index never sees a half-written point.
-foodItemListingSchema.pre("validate", function syncGeoPoint() {
+foodItemListingSchema.pre('validate', function syncGeoPoint() {
   const coordinates = this.location && this.location.coordinates;
 
   if (
     !coordinates ||
-    typeof coordinates.latitude !== "number" ||
-    typeof coordinates.longitude !== "number"
+    typeof coordinates.latitude !== 'number' ||
+    typeof coordinates.longitude !== 'number'
   ) {
     return;
   }
 
   this.location.geo = {
-    type: "Point",
+    type: 'Point',
     coordinates: [coordinates.longitude, coordinates.latitude],
   };
 });
@@ -363,41 +358,34 @@ foodItemListingSchema.methods.toPublic = function toPublic() {
     },
     food_details: {
       title: details.title,
-      description: details.description || "",
+      description: details.description || '',
       category: details.category,
       dietary_tags: details.dietary_tags || [],
       quantity_portions: details.quantity_portions,
-      quantity_unit: details.quantity_unit || "porsi",
+      quantity_unit: details.quantity_unit || 'porsi',
       expiry_timestamp: toIsoString(details.expiry_timestamp),
       photo_urls: details.photo_urls || [],
     },
     location: {
       location_name: location.location_name,
-      address_text: location.address_text || "",
+      address_text: location.address_text || '',
       coordinates: {
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
       },
-      pickup_notes: location.pickup_notes || "",
-      external_map_url: location.external_map_url || "",
+      pickup_notes: location.pickup_notes || '',
+      external_map_url: location.external_map_url || '',
     },
     status: this.status,
   };
 };
 
-const FoodItemListing = mongoose.model(
-  "FoodItemListing",
-  foodItemListingSchema,
-);
+const FoodItemListing = mongoose.model('FoodItemListing', foodItemListingSchema);
 
 // Archive for listings that passed their consumption deadline. Same schema, so
 // the stored shape is identical; the explicit collection name keeps the
 // capitalised "Expired" the API consumers expect.
-const ExpiredListing = mongoose.model(
-  "ExpiredListing",
-  foodItemListingSchema,
-  "Expired",
-);
+const ExpiredListing = mongoose.model('ExpiredListing', foodItemListingSchema, 'Expired');
 
 module.exports = FoodItemListing;
 module.exports.Expired = ExpiredListing;
