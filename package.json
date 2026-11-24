@@ -10,6 +10,7 @@
     "tunnel": "node src/tunnel.js",
     "seed": "node src/seed.js",
     "seed:foods": "node src/seedFoods.js",
+    "seed:demo": "node src/seedDemo.js",
     "seed:admin": "node src/seedAdmin.js",
     "migrate:user-ids": "node src/migrateUserIds.js",
     "migrate:geo": "node src/migrateGeo.js"
