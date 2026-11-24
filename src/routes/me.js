@@ -133,7 +133,7 @@ router.patch('/', authenticate, async (req, res, next) => {
 
   // If the avatar was replaced by another URL, the old uploaded file is unused.
   if (previousAvatarUrl && previousAvatarUrl !== user.personal_info.avatar_url) {
-    await removeAvatarFile(previousAvatarUrl).catch(() => {});
+    await removeAvatarFile(previousAvatarUrl, user.user_id).catch(() => {});
   }
 
   res.json({ data: await buildProfile(user) });
@@ -176,7 +176,7 @@ router.delete('/avatar', authenticate, async (req, res) => {
   user.personal_info.avatar_url = '';
   await user.save();
 
-  await removeAvatarFile(previousUrl).catch(() => {});
+  await removeAvatarFile(previousUrl, user.user_id).catch(() => {});
 
   res.json({ data: await buildProfile(user) });
 });

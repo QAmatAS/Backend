@@ -115,12 +115,23 @@ async function renameUploadedPhotos(files, foodId) {
 }
 
 /**
+ * True only for a file name this server generated for `userId`:
+ * avatar_<user_id>_<8 hex>.<ext>. Matching the whole name (not just a prefix)
+ * also stops one user_id from matching files of a longer user_id that happens
+ * to start with it.
+ */
+function isAvatarFileOf(userId, filename) {
+  if (typeof filename !== 'string' || !userId) return false;
+
+  const owner = sanitizeId(userId);
+  return new RegExp(`^avatar_${owner}_[0-9a-f]{8}\\.(jpg|png|webp|gif)$`).test(filename);
+}
+
+/**
  * Removes the avatar files belonging to one user. `keepFilename` protects the
  * file that was just uploaded, so replacing an avatar does not delete itself.
  */
 async function removeUserAvatars(userId, keepFilename) {
-  const prefix = `avatar_${sanitizeId(userId)}_`;
-
   let names;
   try {
     names = await fsp.readdir(avatarUploadDir);
@@ -132,7 +143,7 @@ async function removeUserAvatars(userId, keepFilename) {
   let removed = 0;
 
   for (const name of names) {
-    if (!name.startsWith(prefix)) continue;
+    if (!isAvatarFileOf(userId, name)) continue;
     if (keepFilename && name === keepFilename) continue;
 
     await fsp.rm(path.join(avatarUploadDir, name), { force: true });
@@ -143,14 +154,16 @@ async function removeUserAvatars(userId, keepFilename) {
 }
 
 /**
- * Removes a single stored avatar. External URLs and anything outside the avatars
- * folder are ignored, so a crafted value cannot delete other files.
+ * Removes a single stored avatar, but only if it belongs to `userId`. The URL
+ * comes from the profile (a user can type anything into avatar_url), so it is
+ * never trusted: external URLs, other folders and other users' files are all
+ * ignored, and nothing is deleted when the owner is unknown.
  */
-async function removeAvatarFile(url) {
+async function removeAvatarFile(url, userId) {
   if (typeof url !== 'string' || !url.startsWith(`${AVATAR_URL_PREFIX}/`)) return false;
 
   const name = path.basename(url);
-  if (!name.startsWith('avatar_')) return false;
+  if (!isAvatarFileOf(userId, name)) return false;
 
   await fsp.rm(path.join(avatarUploadDir, name), { force: true });
   return true;
@@ -163,6 +176,7 @@ module.exports = {
   sanitizeId,
   removeUserAvatars,
   removeAvatarFile,
+  isAvatarFileOf,
   uploadDir,
   avatarUploadDir,
   UPLOAD_URL_PREFIX,
