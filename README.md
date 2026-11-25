@@ -5,7 +5,7 @@ others find it on a map and contact the contributor to pick it up.
 
 ## Requirements
 
-- Node.js 18 or newer (20+ recommended)
+- Node.js 20.19 or newer (required by Mongoose 9 and the MongoDB driver)
 - MongoDB running locally on port `27017`
 
 ## Quick start
@@ -16,6 +16,7 @@ cp .env.example .env      # then edit the values
 npm run seed              # demo accounts (safe to re-run)
 npm run seed:foods        # 10 demo listings around Lowokwaru (safe to re-run)
 npm run seed:admin        # promote one account to admin
+npm run seed:demo         # optional: 3 short-lived listings for the live demo
 npm run dev               # http://localhost:3000
 ```
 
@@ -34,6 +35,7 @@ For a production-style run use `npm start`.
 | `npm run seed` | Create the demo users (idempotent) |
 | `npm run seed:foods` | Seed `dummy/food-listings.json` (idempotent) |
 | `npm run seed:admin` | Promote `ADMIN_EMAIL` to the admin role |
+| `npm run seed:demo` | Approved listings that expire in 2, 3 and 5 minutes (re-run to refresh) |
 | `npm run migrate:user-ids` | Backfill `user_id` for users created before it existed |
 | `npm run migrate:geo` | Backfill `location.geo` for listings created before it existed |
 
@@ -42,6 +44,7 @@ For a production-style run use `npm start`.
 ```
 .
 ├── .env.example           # Sample environment variables
+├── DEMO.md                # Demo-day checklist, smoke test and backup
 ├── dummy                  # Demo payloads used by the seed scripts
 ├── postman                # API collections
 ├── uploads                # Uploaded photos (git-ignored, served at /uploads)
@@ -51,6 +54,7 @@ For a production-style run use `npm start`.
     ├── seed.js            # Demo users
     ├── seedFoods.js       # Demo listings (dates shifted to stay current)
     ├── seedAdmin.js       # Promotes one account to admin
+    ├── seedDemo.js        # Short-lived listings for the live demo
     ├── migrateUserIds.js  # Backfill user_id
     ├── migrateGeo.js      # Backfill location.geo
     ├── tunnel.js          # localtunnel helper
@@ -80,6 +84,11 @@ For a production-style run use `npm start`.
 
 - Tokens are signed with `JWT_SECRET` and live for `JWT_EXPIRES_IN` (default `1d`).
 - In production a missing `JWT_SECRET` stops the server at boot instead of failing the first login.
+- In every mode the server prints a warning at boot when `JWT_SECRET` is missing or still
+  the placeholder from `.env.example`: both are public in the repository, so anyone could
+  forge a token while the API is reachable through the tunnel. Use a random value:
+  `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+- Every `/api/foods` endpoint needs a token (see *Who can see a listing* below).
 - The user is re-read on every request, so deleting an account invalidates its tokens immediately.
 
 Two roles:
@@ -90,6 +99,11 @@ Two roles:
 | `admin` | Everything above, plus approve/reject any listing |
 
 Nothing grants admin implicitly — promote an account with `npm run seed:admin`.
+
+Password rules (`POST /api/register`): `name`, `email` and `password` must be
+strings (anything else is a `400`, never a `500`); the password needs at least 6
+characters and at most **72 bytes**, because bcrypt ignores everything after the
+72nd byte. Login does not apply the upper limit, so older accounts keep working.
 
 ### Demo accounts
 
@@ -111,16 +125,16 @@ accounts the detail screen would have no contact number to show.
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
 | GET | `/api/health` | — | Health check plus database state |
-| POST | `/api/register` | — | Create an account (`name`, `email`, `password` ≥ 6) |
+| POST | `/api/register` | — | Create an account (`name`, `email`, `password` 6–72 bytes) |
 | POST | `/api/login` | — | Returns a JWT |
 | GET | `/api/me` | Bearer | Current user, role, contact info, derived stats |
 | PATCH | `/api/me` | Bearer | Update the signed-in user's own profile |
 | POST | `/api/me/avatar` | Bearer | Upload a profile photo (multipart) |
 | DELETE | `/api/me/avatar` | Bearer | Remove the profile photo |
 | GET | `/api/me/listings` | Bearer | The signed-in user's own listings |
-| GET | `/api/foods` | optional | Explore: search, filters, radius, paging |
+| GET | `/api/foods` | Bearer | Explore: search, filters, radius, paging (approved listings only; admins can filter by verification status) |
 | GET | `/api/foods/new` | Bearer | Notification poll: what appeared nearby since a cursor |
-| GET | `/api/foods/:id` | optional | One listing (`food_id` or ObjectId) plus its contributor |
+| GET | `/api/foods/:id` | Bearer | One listing (`food_id` or ObjectId) plus its contributor; pending/rejected only for the owner and admins |
 | POST | `/api/foods` | Bearer | Create a listing (JSON or multipart with photos) |
 | PATCH | `/api/foods/:id` | Bearer, owner | Update listing content |
 | PATCH | `/api/foods/:id/status` | Bearer, owner | Change the availability mark |
@@ -218,6 +232,18 @@ owner account at read time:
 It is `null` if the account no longer exists, and never contains an email.
 The list endpoints omit it to keep the feed light.
 
+### Who can see a listing
+
+| Listing is | Explore (`GET /api/foods`) | Detail (`GET /api/foods/:id`) | Notification poll |
+| ---------- | -------------------------- | ----------------------------- | ----------------- |
+| `approved` | everyone signed in | everyone signed in | yes |
+| `pending` / `rejected` | never (admins can ask for it) | owner and admins; **404** for everybody else | no |
+
+- A hidden listing answers `404`, exactly like one that does not exist.
+- Owners follow their own pending/rejected listings through `GET /api/me/listings`.
+- Admins work through the moderation queue with `GET /api/foods?verification_status=pending`.
+  For everybody else the `verification_status` parameter is ignored (not an error).
+
 ### Status transitions
 
 ```
@@ -257,7 +283,7 @@ Consequences of the archive:
 | `q` | — | Case-insensitive search over title and description (regex-escaped) |
 | `category` | — | Exact match, case-insensitive |
 | `status` | `available` | Enum value, validated. The public feed only shows food that can still be picked up; pass a status explicitly to query the rest |
-| `verification_status` | all except `rejected` | Enum value, validated |
+| `verification_status` | `approved` (admins: all except `rejected`) | Only admins can change it; the value is validated for them and ignored for everybody else |
 | `contributor_id` | — | Filter by owner |
 | `lat`, `lng` | — | Must be sent together |
 | `radiusKm` | `5` | Only with `lat`/`lng`, max `100` |
@@ -274,9 +300,14 @@ GET /api/foods/new?lat=-7.9526&lng=112.6144&radiusKm=5&since=2026-11-22T09:00:00
 → { server_time, count, items: [{ food_id, title, quantity_portions, quantity_unit, created_at }] }
 ```
 
-Returns only listings that are `available`, not `rejected`, not the caller's own,
-inside the radius, created strictly after `since`, and expiring more than
-**45 minutes** from now.
+Returns only listings that are `available` and **approved**, not the caller's own,
+inside the radius, **approved strictly after `since`**
+(`verification_details.verified_at`), and expiring more than **45 minutes** from now.
+
+The cursor is the approval time, not the creation time: a listing created earlier
+but approved after your last poll is announced, one approved before it is not.
+Items still carry `created_at` for display. Listings that expire within 45 minutes
+(for example the `seed:demo` ones) are never announced, but they do show in Explore.
 
 - **Omit `since`** to bootstrap: `count` is `0` and you get a `server_time` to
   store. This stops a fresh install notifying about food that was already there.
@@ -305,12 +336,15 @@ curl -X POST http://localhost:3000/api/foods \
 - `food_details.expiry_timestamp` **must be in the future** (`400` otherwise), so
   a create response can never describe food that is already expired. The same
   rule applies to content edits.
-- `food_id` is optional (`food_<8hex>` when omitted) and unique.
+- `food_id` is optional (`food_<8hex>` when omitted) and unique across active **and** archived
+  (`Expired`) listings (`409` otherwise).
 - `location.external_map_url` is derived from the coordinates when omitted.
 - Photos: JPEG/PNG/WEBP/GIF, max 5 MB each, max 5 per listing. Stored in
   `uploads/foods/` as `Image_<food_id>.<ext>` and served from `/uploads/...`.
   `photo_urls` are **relative**, so the client prefixes its base URL.
 - `DELETE` removes the listing's own photo files from disk.
+- `PATCH` needs `food_details` and `location` to be objects when present (`400` for
+  `null`, arrays or strings).
 
 ## Errors
 
@@ -322,10 +356,10 @@ All errors use the same envelope:
 
 | Status | When |
 | ------ | ---- |
-| 400 | Validation, bad enum/query value, illegal status transition |
+| 400 | Validation, wrong type (e.g. a non-string password), bad enum/query value, illegal status transition |
 | 401 | Missing, invalid or expired token |
 | 403 | Authenticated but not the owner, or not an admin |
-| 404 | Unknown route or listing |
+| 404 | Unknown route or listing, or a pending/rejected listing you may not see |
 | 409 | Duplicate email, `user_id` or `food_id` |
 | 500 | Masked as `Internal server error` |
 
@@ -347,11 +381,13 @@ Without `migrate:user-ids`, a user cannot be matched to their listings.
 Import both collections from `postman/`:
 
 - `Backend-Auth.postman_collection.json` — health, register, login, `/api/me`
-  (10 requests).
+  (18 requests).
 - `Backend-Foods.postman_collection.json` — explore, contribute, owner actions,
-  moderation and cleanup (30 requests).
+  moderation and cleanup (48 requests).
 
-Set `baseUrl` (`http://localhost:3000`, or your LAN IP / tunnel URL) and run each
+Both collections need the demo data first: `npm run seed`, `npm run seed:foods` and
+`npm run seed:admin` (alice is the admin; the Foods collection also logs in as maya
+and bob). Set `baseUrl` (`http://localhost:3000`, or your LAN IP / tunnel URL) and run each
 collection **top to bottom**: the Auth collection saves the token, and the Foods
 collection creates its own listings and deletes them in the final folder, so it is
 safe to re-run. The multipart request bundles `postman/sample-food.png`; if
@@ -378,9 +414,12 @@ a different one.
 If a browser shows the localtunnel reminder page, API clients can send
 `bypass-tunnel-reminder: true`. Development only, not a deployment.
 
+The tunnel is public: before using it, replace the placeholder `JWT_SECRET` in `.env`
+with a random value (the server warns at boot when it is missing or still the example).
+
 ## Deployment notes
 
-- Set `JWT_SECRET` (the server refuses to boot in production without it).
+- Set `JWT_SECRET` to a random value (the server refuses to boot in production without it).
 - Point `MONGODB_URI` at your database.
 - Uploaded photos live on local disk under `uploads/`. A stateless host needs
   persistent storage or an object store before this can scale.

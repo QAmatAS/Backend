@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Backend - Foods",
-    "description": "Explore, contribute, moderation and cleanup. Run top to bottom: it creates its own listings and deletes them at the end. Requires `npm run seed`, `npm run seed:foods` and `npm run seed:admin` (alice is the admin). The multipart request bundles postman/sample-food.png; if Postman cannot resolve it, select the file manually on the `photos` row.",
+    "description": "Explore, contribute, moderation and cleanup. Run top to bottom: it creates its own listings and deletes them at the end. Requires `npm run seed`, `npm run seed:foods` and `npm run seed:admin` (alice is the admin; bob is the second contributor). Every /api/foods request needs a Bearer token. Regular users only see approved listings; pending ones are visible to their owner and to admins. The multipart request bundles postman/sample-food.png; if Postman cannot resolve it, select the file manually on the `photos` row.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -11,6 +11,10 @@
     },
     {
       "key": "token",
+      "value": ""
+    },
+    {
+      "key": "otherToken",
       "value": ""
     },
     {
@@ -117,6 +121,42 @@
               }
             }
           ]
+        },
+        {
+          "name": "Login - other contributor (bob)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bob@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('bob is a regular contributor', () => pm.expect(body.user.role).to.eql('contributor'));",
+                  "pm.collectionVariables.set('otherToken', body.token);"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -127,7 +167,12 @@
           "name": "List - default",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods"
           },
           "event": [
@@ -140,7 +185,7 @@
                   "const body = pm.response.json();",
                   "pm.test('paging meta present', () => pm.expect(body).to.have.all.keys('count', 'total', 'page', 'limit', 'hasMore', 'data'));",
                   "pm.test('rejected listings are hidden', () => pm.expect(body.data.some((x) => x.verification_status === 'rejected')).to.be.false);",
-                  "pm.test('pending listings stay visible', () => pm.expect(body.data.some((x) => x.verification_status === 'pending')).to.be.true);",
+                  "pm.test('only approved listings are visible', () => body.data.forEach((x) => pm.expect(x.verification_status).to.eql('approved')));",
                   "pm.test('items carry quantity_unit', () => body.data.forEach((x) => pm.expect(x.food_details.quantity_unit).to.be.a('string')));",
                   "pm.test('only available listings are returned', () => body.data.forEach((x) => pm.expect(x.status).to.eql('available')));",
                   "pm.test('nothing past its expiry is listed', () => body.data.forEach((x) => pm.expect(new Date(x.food_details.expiry_timestamp).getTime()).to.be.greaterThan(Date.now())));"
@@ -153,7 +198,12 @@
           "name": "List - search",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods?q=nasi&limit=100"
           },
           "event": [
@@ -174,7 +224,12 @@
           "name": "List - geo radius",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods?lat=-7.9526&lng=112.6144&radiusKm=1&limit=100"
           },
           "event": [
@@ -196,7 +251,12 @@
           "name": "List - paging",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods?limit=2&page=1"
           },
           "event": [
@@ -218,8 +278,109 @@
           "name": "List - invalid status",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods?status=nope"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - without a token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));",
+                  "pm.test('explains why', () => pm.expect(pm.response.json().error.message).to.eql('Authentication required'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - verification_status filter is ignored for contributors",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods?verification_status=pending&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('still only approved listings', () => body.data.forEach((x) => pm.expect(x.verification_status).to.eql('approved')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - admin sees the pending queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods?verification_status=pending&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('only pending listings', () => body.data.forEach((x) => pm.expect(x.verification_status).to.eql('pending')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - admin with a bad verification_status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods?verification_status=nope"
           },
           "event": [
             {
@@ -237,7 +398,12 @@
           "name": "Detail - contributor block",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods/food_demo01"
           },
           "event": [
@@ -261,7 +427,12 @@
           "name": "Detail - not found",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods/food_does_not_exist"
           },
           "event": [
@@ -271,6 +442,25 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail - without a token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods/food_demo01"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
                 ]
               }
             }
@@ -299,6 +489,25 @@
                   "pm.test('no cursor means nothing to announce', () => pm.expect(body.count).to.eql(0));",
                   "pm.test('server_time is usable as a cursor', () => pm.expect(body.server_time).to.match(/Z$/));",
                   "pm.collectionVariables.set('serverTime', body.server_time);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New - without a token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/foods/new?lat=-7.9526&lng=112.6144&radiusKm=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
                 ]
               }
             }
@@ -475,6 +684,105 @@
               }
             }
           ]
+        },
+        {
+          "name": "Pending - owner can open it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('still pending', () => pm.expect(pm.response.json().data.verification_status).to.eql('pending'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pending - another user gets 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pending - admin can open it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pending - hidden from another user's Explore",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods?limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('pending listing is not in the feed', () => pm.expect(body.data.some((x) => x.food_id === pm.collectionVariables.get('createdId'))).to.be.false);"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -634,6 +942,82 @@
           ]
         },
         {
+          "name": "Content - food_details null is rejected",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"food_details\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explains the shape', () => pm.expect(pm.response.json().error.message).to.include('food_details'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Content - location null is rejected",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('explains the shape', () => pm.expect(pm.response.json().error.message).to.include('location'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Content - foreign listing is forbidden",
           "request": {
             "method": "PATCH",
@@ -782,6 +1166,148 @@
           ]
         },
         {
+          "name": "Approved - another user can open it",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{createdId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('now approved', () => pm.expect(pm.response.json().data.verification_status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify - admin approves the second listing",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/{{spoofId}}/verify",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('now approved', () => pm.expect(pm.response.json().data.verification_status).to.eql('approved'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approved - appears in another user's Explore",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods?lat=-7.9526&lng=112.6144&radiusKm=1&limit=100"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('approved listing is in the feed', () => pm.expect(body.data.some((x) => x.food_id === pm.collectionVariables.get('spoofId'))).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New - approval announces the listing",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/new?lat=-7.9526&lng=112.6144&radiusKm=5&since={{serverTime}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('the cursor is the approval time, so it shows up now', () => pm.expect(body.items.some((x) => x.food_id === pm.collectionVariables.get('spoofId'))).to.be.true);",
+                  "pm.test('count covers the preview', () => pm.expect(body.count).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "New - the owner is never notified",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods/new?lat=-7.9526&lng=112.6144&radiusKm=5&since={{serverTime}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('own listing is not announced', () => pm.expect(body.items.some((x) => x.food_id === pm.collectionVariables.get('spoofId'))).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Verify - rejection needs a reason",
           "request": {
             "method": "PATCH",
@@ -862,8 +1388,13 @@
           "name": "Verify - rejected listing leaves Explore",
           "request": {
             "method": "GET",
-            "header": [],
-            "url": "{{baseUrl}}/api/foods?limit=100"
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{otherToken}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/foods?status=picked_up&limit=100"
           },
           "event": [
             {
@@ -996,7 +1527,12 @@
           "name": "Delete - already gone",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
             "url": "{{baseUrl}}/api/foods/{{createdId}}"
           },
           "event": [
