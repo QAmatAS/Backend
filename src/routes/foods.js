@@ -52,6 +52,10 @@ function isPresent(value) {
   return value !== undefined && value !== null && value !== '';
 }
 
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Parses the optional ?lat&lng&radiusKm triple. Returns null when absent.
  */
@@ -265,8 +269,8 @@ async function findListingForRead(identifier) {
 }
 
 /**
- * Listings are public to read, so returning 403 here reveals nothing that
- * GET /api/foods/:id does not already show.
+ * Approved listings are readable by every signed-in user, so returning 403 here
+ * reveals nothing that GET /api/foods/:id does not already show.
  */
 function assertOwner(req, listing) {
   if (listing.contributor_id !== req.user.user_id) {
@@ -274,12 +278,26 @@ function assertOwner(req, listing) {
   }
 }
 
-// GET /api/foods
+/**
+ * Who may read one listing: everybody who is signed in once it is approved;
+ * before that (pending or rejected) only its owner and admins. Callers answer
+ * 404 when this is false, so a hidden listing looks exactly like a missing one.
+ */
+function canViewListing(user, listing) {
+  return (
+    listing.verification_status === 'approved' ||
+    user.role === 'admin' ||
+    listing.contributor_id === user.user_id
+  );
+}
+
+// GET /api/foods  (sign-in required)
 // Explore feed: text search, category filter, availability/verification
 // filters, geo radius and paging. Only food that is still available is returned
 // by default; anything past its consumption deadline is first flipped to
-// "expired" in the database.
-router.get('/', async (req, res) => {
+// "expired" in the database. Regular users only ever see approved listings;
+// admins may pick the verification state to work through the moderation queue.
+router.get('/', authenticate, async (req, res) => {
   await FoodItemListing.expireStale();
 
   const { status, verification_status, contributor_id, category, q, lat, lng, radiusKm } =
@@ -292,12 +310,20 @@ router.get('/', async (req, res) => {
   filter.status =
     parseEnumParam(status, FoodItemListing.STATUSES, 'status') || 'available';
 
-  filter.verification_status =
-    parseEnumParam(
-      verification_status,
-      FoodItemListing.VERIFICATION_STATUSES,
-      'verification_status'
-    ) || { $ne: 'rejected' };
+  if (req.user.role === 'admin') {
+    // Admins may ask for any state (e.g. ?verification_status=pending for the
+    // approval queue). Without the parameter, rejected listings stay hidden.
+    filter.verification_status =
+      parseEnumParam(
+        verification_status,
+        FoodItemListing.VERIFICATION_STATUSES,
+        'verification_status'
+      ) || { $ne: 'rejected' };
+  } else {
+    // Everyone else gets approved listings only; the parameter is ignored. An
+    // owner follows their own pending/rejected listings in GET /api/me/listings.
+    filter.verification_status = 'approved';
+  }
 
   if (isPresent(contributor_id)) {
     filter.contributor_id = String(contributor_id).trim();
@@ -408,8 +434,12 @@ router.get('/new', authenticate, async (req, res) => {
     // Never notify someone about their own listing.
     contributor_id: { $ne: req.user.user_id },
     status: 'available',
-    verification_status: { $ne: 'rejected' },
-    created_at: { $gt: cursor },
+    // Only approved food is on the Explore feed, so only approved food notifies.
+    verification_status: 'approved',
+    // The cursor is the approval time, not the creation time: a listing created
+    // earlier but approved after the last poll is news to the user, while one
+    // approved before the last poll is not.
+    'verification_details.verified_at': { $gt: cursor },
     // Skip food that will expire before the user could realistically arrive.
     'food_details.expiry_timestamp': {
       $gt: new Date(now.getTime() + EXPIRY_GRACE_MINUTES * 60 * 1000),
@@ -426,7 +456,7 @@ router.get('/new', authenticate, async (req, res) => {
 
   const [listings, count] = await Promise.all([
     FoodItemListing.find(filter)
-      .sort({ created_at: -1 })
+      .sort({ 'verification_details.verified_at': -1 })
       .limit(NEW_PREVIEW_LIMIT)
       .select(
         'food_id created_at food_details.title food_details.quantity_portions food_details.quantity_unit'
@@ -447,15 +477,17 @@ router.get('/new', authenticate, async (req, res) => {
   });
 });
 
-// GET /api/foods/:id  (accepts food_id or Mongo ObjectId)
-router.get('/:id', async (req, res, next) => {
+// GET /api/foods/:id  (sign-in required; accepts food_id or Mongo ObjectId)
+router.get('/:id', authenticate, async (req, res, next) => {
   // Keep a stale link honest: an expired listing still resolves, but reads as
   // "expired" instead of pretending it is still available.
   await FoodItemListing.expireStale();
 
   const listing = await findListingForRead(req.params.id);
 
-  if (!listing) {
+  // Unapproved listings (pending/rejected) are only visible to their owner and
+  // to admins; for everybody else they simply do not exist.
+  if (!listing || !canViewListing(req.user, listing)) {
     return next(httpError(404, 'Food listing not found'));
   }
 
@@ -467,7 +499,14 @@ router.post('/', authenticate, uploadFoodPhotos.array('photos', 5), async (req, 
   try {
     const payload = buildListingPayload(parseListingBody(req), req.user.user_id);
 
-    if (await FoodItemListing.exists({ food_id: payload.food_id })) {
+    // The id must be free in the archive too: it still names an expired
+    // listing (and its photos), and reusing it would clash on expiry.
+    const [activeMatch, archivedMatch] = await Promise.all([
+      FoodItemListing.exists({ food_id: payload.food_id }),
+      FoodItemListing.Expired.exists({ food_id: payload.food_id }),
+    ]);
+
+    if (activeMatch || archivedMatch) {
       throw httpError(409, 'food_id is already registered');
     }
 
@@ -586,6 +625,14 @@ router.patch('/:id', authenticate, async (req, res, next) => {
   assertOwner(req, listing);
 
   const { food_details, location } = req.body || {};
+
+  if (food_details !== undefined && !isPlainObject(food_details)) {
+    return next(httpError(400, 'food_details must be an object'));
+  }
+
+  if (location !== undefined && !isPlainObject(location)) {
+    return next(httpError(400, 'location must be an object'));
+  }
 
   // An edit must not move a listing's deadline into the past either.
   if (food_details !== undefined && isPresent(food_details.expiry_timestamp)) {
