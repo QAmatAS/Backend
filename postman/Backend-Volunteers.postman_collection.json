@@ -1,0 +1,1597 @@
+{
+  "info": {
+    "name": "Backend - Volunteers (NGO)",
+    "description": "Volunteer application + admin review. Run top to bottom, on a clean state:\n1. npm run seed && npm run seed:admin\n2. npm run seed:volunteers -- --reset\nThe collection uses bob as the applicant, maya as an outsider and alice (admin) as reviewer. Re-run step 2 before every run. The KTP file part uses dummy/ktp-sample.png (a placeholder, not a real ID).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Setup",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"db is connected\", () => pm.expect(Boolean(pm.response.json().db === 'connected')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - admin (alice)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"alice@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"returns a bearer token\", () => pm.expect(Boolean(typeof body.token === 'string' && body.token.length > 0)).to.eql(true));",
+                  "pm.collectionVariables.set('tokenAdmin', body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - applicant (bob)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bob@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"returns a bearer token\", () => pm.expect(Boolean(typeof body.token === 'string' && body.token.length > 0)).to.eql(true));",
+                  "pm.collectionVariables.set('tokenBob', body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - other user (maya)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"maya@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"returns a bearer token\", () => pm.expect(Boolean(typeof body.token === 'string' && body.token.length > 0)).to.eql(true));",
+                  "pm.collectionVariables.set('tokenMaya', body.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sanity - alice really is an admin",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"alice can open the review queue (run npm run seed:admin if this fails)\", () => pm.expect(Boolean(true)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Apply (POST /api/volunteers)",
+      "item": [
+        {
+          "name": "Apply - no token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - admin is not allowed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 403', () => pm.response.to.have.status(403));",
+                  "pm.test(\"explains why\", () => pm.expect(Boolean(/Admins/.test(pm.response.json().error.message))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - missing ktp file",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test(\"mentions ktp\", () => pm.expect(Boolean(/ktp file is required/.test(pm.response.json().error.message))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - data is not JSON",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{not json",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - full_name is a number",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": 123, \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test(\"says must be a string\", () => pm.expect(Boolean(/must be a string/.test(pm.response.json().error.message))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - whatsapp too short",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"12345\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - bad email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"bukan-email\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - success (bob)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            },
+            "description": "Needs dummy/ktp-sample.png. If Postman cannot find the file, re-pick it in the `ktp` row (Body > form-data)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const v = pm.response.json().data;",
+                  "pm.test(\"status is pending\", () => pm.expect(Boolean(v.status === 'pending')).to.eql(true));",
+                  "pm.test(\"volunteer_id looks right\", () => pm.expect(Boolean(/^vol_[0-9a-f]{8}$/.test(v.volunteer_id))).to.eql(true));",
+                  "pm.test(\"whatsapp is normalised to +62...\", () => pm.expect(Boolean(v.whatsapp === '+6281234567890')).to.eql(true));",
+                  "pm.test(\"email is lower-cased\", () => pm.expect(Boolean(v.email === 'bob@example.com')).to.eql(true));",
+                  "pm.test(\"ktp_url points at the authenticated endpoint\", () => pm.expect(Boolean(v.ktp_url === '/api/volunteers/' + v.volunteer_id + '/ktp')).to.eql(true));",
+                  "pm.test(\"the stored file name is never exposed\", () => pm.expect(Boolean(!JSON.stringify(v).includes('ktp_file') && v.has_ktp === true)).to.eql(true));",
+                  "pm.collectionVariables.set('volId', v.volunteer_id);",
+                  "pm.collectionVariables.set('ktpUrl', v.ktp_url);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - duplicate while pending",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test(\"says pending\", () => pm.expect(Boolean(/pending/.test(pm.response.json().error.message))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. My application (GET /api/volunteers/me)",
+      "item": [
+        {
+          "name": "Me - bob sees a pending application",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"same id and pending\", () => pm.expect(Boolean(pm.response.json().data.volunteer_id === pm.collectionVariables.get('volId') && pm.response.json().data.status === 'pending')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me - maya has none",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenMaya}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"data is null\", () => pm.expect(Boolean(pm.response.json().data === null)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me - no token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/volunteers/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Review queue (GET /api/volunteers)",
+      "item": [
+        {
+          "name": "List - no token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/volunteers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - contributor is forbidden",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - admin sees the pending queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"bob's application is in the queue\", () => pm.expect(Boolean(body.data.some(v => v.volunteer_id === pm.collectionVariables.get('volId')))).to.eql(true));",
+                  "pm.test(\"only pending items by default\", () => pm.expect(Boolean(body.data.every(v => v.status === 'pending'))).to.eql(true));",
+                  "pm.test(\"summary has the four counters\", () => pm.expect(Boolean(['total','pending','approved','rejected'].every(k => typeof body.summary[k] === 'number'))).to.eql(true));",
+                  "pm.test(\"no stored file names in the list\", () => pm.expect(Boolean(!JSON.stringify(body).includes('ktp_file'))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - status=all",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers?status=all"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - paging (limit=1)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers?status=all&limit=1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"one item per page\", () => pm.expect(Boolean(pm.response.json().count === 1 && pm.response.json().limit === 1)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List - invalid status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers?status=bogus"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. KTP photo (GET /api/volunteers/:id/ktp)",
+      "item": [
+        {
+          "name": "KTP - owner can download",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}{{ktpUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"is an image\", () => pm.expect(Boolean(/^image\\//.test(pm.response.headers.get('Content-Type')))).to.eql(true));",
+                  "pm.test(\"not cacheable\", () => pm.expect(Boolean(/no-store/.test(pm.response.headers.get('Cache-Control')))).to.eql(true));",
+                  "pm.test(\"nosniff header\", () => pm.expect(Boolean(pm.response.headers.get('X-Content-Type-Options') === 'nosniff')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - admin can download",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}{{ktpUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - another user gets 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenMaya}}"
+              }
+            ],
+            "url": "{{baseUrl}}{{ktpUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - no token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}{{ktpUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - unknown id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/vol_00000000/ktp"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - not reachable under /uploads",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/uploads/ktp/ktp_usr_x_00000000.png"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - not reachable under /private_uploads",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/private_uploads/ktp/ktp_usr_x_00000000.png"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Review (PATCH /api/volunteers/:id/review)",
+      "item": [
+        {
+          "name": "Review - no token",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - contributor is forbidden",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - invalid decision",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"maybe\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - reject without a reason",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test(\"asks for a reason\", () => pm.expect(Boolean(/reason is required/.test(pm.response.json().error.message))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - reject with a blank reason",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\",\n  \"reason\": \"   \"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - reason is a number",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\",\n  \"reason\": 12345\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - unknown id",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/vol_ffffffff/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - reject with a reason",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\",\n  \"reason\": \"Foto KTP buram\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const v = pm.response.json().data;",
+                  "pm.test(\"rejected, reason stored, reviewer recorded\", () => pm.expect(Boolean(v.status === 'rejected' && v.review.rejection_reason === 'Foto KTP buram' && /^usr_/.test(v.review.reviewed_by) && !!v.review.reviewed_at)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - same decision again is a no-op",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\",\n  \"reason\": \"alasan lain\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"reason unchanged\", () => pm.expect(Boolean(pm.response.json().data.review.rejection_reason === 'Foto KTP buram')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - approve after reject is a conflict",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me - bob sees the rejection reason",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"rejected with reason\", () => pm.expect(Boolean(pm.response.json().data.status === 'rejected' && pm.response.json().data.review.rejection_reason === 'Foto KTP buram')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Re-apply and approve",
+      "item": [
+        {
+          "name": "Apply again after rejection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar Baru\", \"whatsapp\": \"+62 812 3456 7890\", \"email\": \"bob@example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const v = pm.response.json().data;",
+                  "pm.test(\"same application, back to pending, review cleared\", () => pm.expect(Boolean(v.volunteer_id === pm.collectionVariables.get('volId') && v.status === 'pending' && v.review.rejection_reason === null)).to.eql(true));",
+                  "pm.test(\"new name saved\", () => pm.expect(Boolean(v.full_name === 'Bob Pelamar Baru')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "KTP - still downloadable after re-apply",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}{{ktpUrl}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - approve",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"approved, no reason\", () => pm.expect(Boolean(pm.response.json().data.status === 'approved' && pm.response.json().data.review.rejection_reason === null)).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - approve again is a no-op",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"still approved\", () => pm.expect(Boolean(pm.response.json().data.status === 'approved')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Review - reject after approve is a conflict",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/{{volId}}/review",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"decision\": \"rejected\",\n  \"reason\": \"terlambat\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply - after approval is a conflict",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "data",
+                  "value": "{\"full_name\": \"Bob Pelamar\", \"whatsapp\": \"0812-3456-7890\", \"email\": \"Bob@Example.com\"}",
+                  "type": "text"
+                },
+                {
+                  "key": "ktp",
+                  "src": "dummy/ktp-sample.png",
+                  "type": "file"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test(\"says approved\", () => pm.expect(Boolean(/approved/.test(pm.response.json().error.message))).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me - bob is approved",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenBob}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/volunteers/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"approved\", () => pm.expect(Boolean(pm.response.json().data.status === 'approved')).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "tokenAdmin",
+      "value": ""
+    },
+    {
+      "key": "tokenBob",
+      "value": ""
+    },
+    {
+      "key": "tokenMaya",
+      "value": ""
+    },
+    {
+      "key": "volId",
+      "value": ""
+    },
+    {
+      "key": "ktpUrl",
+      "value": ""
+    }
+  ]
+}

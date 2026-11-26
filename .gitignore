@@ -24,3 +24,6 @@ coverage/
 # Locally uploaded images (keep the folder, ignore its contents)
 uploads/*
 !uploads/.gitkeep
+
+# KTP photos of volunteer applicants (identity documents: never commit)
+private_uploads/
