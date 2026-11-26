@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const authRouter = require('./auth');
 const meRouter = require('./me');
 const foodsRouter = require('./foods');
+const volunteersRouter = require('./volunteers');
 
 const router = express.Router();
 
@@ -29,6 +30,11 @@ if (process.env.NODE_ENV !== 'production') {
         'PATCH /api/foods/:id/status',
         'PATCH /api/foods/:id/verify',
         'DELETE /api/foods/:id',
+        'POST /api/volunteers',
+        'GET /api/volunteers/me',
+        'GET /api/volunteers',
+        'GET /api/volunteers/:id/ktp',
+        'PATCH /api/volunteers/:id/review',
       ],
     });
   });
@@ -46,5 +52,6 @@ router.get('/health', (req, res) => {
 router.use(authRouter);
 router.use('/me', meRouter);
 router.use('/foods', foodsRouter);
+router.use('/volunteers', volunteersRouter);
 
 module.exports = router;
