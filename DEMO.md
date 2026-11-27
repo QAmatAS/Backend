@@ -194,6 +194,64 @@ setelah admin meng-approve. Untuk menunjukkan notifikasi, gunakan alur nyata: us
 posting dengan tenggat minimal 1 jam, admin approve di app, lalu HP user B (yang sudah
 membuka app dan polling) menerima notifikasi.
 
+## 3b. Data demo realistis di sekitar Universitas Brawijaya
+
+```powershell
+npm.cmd run seed:ub -- --clean --clean-tests
+```
+
+Satu perintah ini menyiapkan data untuk **semua layar**. Semua listing milik Maya atau Budi,
+berfoto ilustrasi dari `dummy/photos` (disalin ke `uploads/foods/`), dan aman dijalankan ulang
+(listing yang sama diperbarui, tidak digandakan). Tenggat tiap listing 30 jam lebih setelah
+skrip dijalankan, jadi **jalankan pagi hari demo**.
+
+| food_id | Status | Tampil di | Gunanya di demo |
+| ------- | ------ | --------- | --------------- |
+| `food_ub01` - `food_ub12` | approved + available | Jelajah (12 pin di sekitar kampus UB) dan Donasi Saya milik Maya/Budi | Peta penuh pin berwarna; tombol "Tandai dipesan" dan "Batalkan donasi" |
+| `food_ub21`, `food_ub22`, `food_ub23` | pending | Antrean Verifikasi (admin); Donasi Saya (chip "Menunggu verifikasi") | Admin menyetujui atau menolak langsung di app |
+| `food_ub24` | rejected (alasan terisi) | Donasi Saya milik Maya | Banner "Ditolak admin" dan tombol Edit |
+| `food_ub25` | approved + reserved | Donasi Saya milik Budi (chip "Dipesan") | Tombol "Sudah diambil" dan "Tersedia lagi" |
+| `food_ub26` | approved + picked_up | Donasi Saya milik Maya (chip "Sudah diambil") | Contoh donasi selesai |
+| `food_ub27` | approved + cancelled | Donasi Saya milik Budi (chip "Dibatalkan") | Contoh donasi dibatalkan |
+
+Listing `ub21` sampai `ub27` sengaja tidak muncul di peta Jelajah (hanya yang approved dan
+available yang tampil di sana).
+
+Opsi perintah:
+
+- `--clean`: membuang listing demo lama (`food_demo*` dan `food_live*`, fotonya acak dan
+  lokasinya tersebar).
+- `--clean-tests`: membuang listing uji tim yang judulnya diawali "test" atau
+  "Notification Reboot Test" (misalnya "test 2", "test 3 minuman"). Nama yang dihapus dicetak
+  satu per satu di layar. Listing lain tidak disentuh.
+
+Jalankan `npm.cmd run seed` dulu kalau akun Maya dan Budi belum ada (tombol WhatsApp di detail
+butuh nomor telepon pemiliknya), dan `npm.cmd run seed:admin` untuk menjadikan akun admin.
+
+### Volunteer
+
+```powershell
+npm.cmd run seed:volunteers -- --reset
+```
+
+Menghapus semua pendaftaran volunteer lalu membuat satu pendaftaran **pending** milik Budi.
+Admin melihatnya di tab NGO lalu menyetujui atau menolaknya. Maya tidak punya pendaftaran: ia
+mendaftar langsung dari tab Gabung di app. Jalankan **setelah** `seed:ub`, karena `--reset`
+menghapus semua pendaftaran yang ada.
+
+### Urutan lengkap pagi hari demo
+
+```powershell
+npm.cmd run seed
+npm.cmd run seed:admin
+npm.cmd run seed:ub -- --clean --clean-tests
+npm.cmd run seed:volunteers -- --reset
+```
+
+Lalu di HP: tarik muat ulang di tab Donasi. Kalau masih ada kartu lama dari data sebelumnya,
+Pengaturan Android lalu Aplikasi lalu SpoonShare lalu Penyimpanan lalu Hapus data, dan login
+ulang.
+
 ## 4. Cadangan database
 
 `mongodump` tidak ikut terpasang bersama MongoDB Server 4.4 ke atas; pasang **MongoDB Database
@@ -244,7 +302,7 @@ Setelah pulih, jalankan ulang server dan uji kunci (bagian 2). Buat cadangan **s
 | Semua request `500` | Baca pesan di jendela server (`npm.cmd run dev`), pesan asli hanya ada di sana |
 | `Failed to start server` / tidak bisa konek DB | `Get-Service MongoDB` harus `Running`; cek `MONGODB_URI` di `.env` |
 | `401` di app padahal sudah login | Token berlaku 1 hari (`JWT_EXPIRES_IN`) dan hilang kalau `JWT_SECRET` diganti: login ulang |
-| Explore kosong | Jalankan `npm.cmd run seed:foods` dan `npm.cmd run seed:demo` (listing lama bisa sudah kedaluwarsa) |
+| Explore kosong | Jalankan `npm.cmd run seed:ub` (atau `seed:foods` dan `seed:demo`); listing lama bisa sudah kedaluwarsa |
 | Listing baru tidak muncul di Explore | Wajar: harus di-approve admin dulu; pemiliknya melihatnya di "listing saya" |
 | Tunnel menampilkan halaman pengingat | Kirim header `bypass-tunnel-reminder: true` dari klien API |
 | Alamat tunnel berubah | `TUNNEL_SUBDOMAIN` di `.env` harus tetap; skrip memperingatkan kalau namanya berbeda |

@@ -11,6 +11,7 @@
     "seed": "node src/seed.js",
     "seed:foods": "node src/seedFoods.js",
     "seed:demo": "node src/seedDemo.js",
+    "seed:ub": "node src/seedUb.js",
     "seed:volunteers": "node src/seedVolunteers.js",
     "seed:admin": "node src/seedAdmin.js",
     "migrate:user-ids": "node src/migrateUserIds.js",
